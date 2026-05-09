@@ -27,8 +27,9 @@ SYMBOLS = {
         'SMI':      ('^smi',   '^SSMI',       'SMI (CH)'),
     },
     'usa': {
+        # Nasdaq 100 (NDX) per coerenza con il future NQ
         'SP500':    ('^spx',   '^GSPC',       'S&P 500'),
-        'NASDAQ':   ('^ndq',   '^IXIC',       'Nasdaq Composite'),
+        'NASDAQ':   ('^ndx',   '^NDX',        'Nasdaq 100'),
         'DOW':      ('^dji',   '^DJI',        'Dow Jones'),
         'RUSSELL':  (None,     '^RUT',        'Russell 2000'),
     },
@@ -161,29 +162,14 @@ def fetch_yahoo(symbol):
 
 
 def fetch_one(logical_key, mapping, label):
-    """Prova Stooq prima, poi Yahoo. Ritorna dict normalizzato."""
+    """Prova Yahoo prima (dati più freschi), poi Stooq come fallback.
+    NOTA: Stooq ha un bug noto: a volte restituisce close/prev_close di 1-2 sessioni indietro
+    anche se la data del CSV è corretta. Per questo Yahoo è ora la sorgente primaria.
+    """
     stooq_sym, yahoo_sym, _ = mapping
     out = {'label': label}
-    
-    # Try Stooq
-    if stooq_sym:
-        try:
-            r = fetch_stooq(stooq_sym)
-            if r and r.get('price') is not None and r.get('prev_close') is not None:
-                price, prev = r['price'], r['prev_close']
-                pct = round((price - prev) / prev * 100, 2) if prev else None
-                return {
-                    **out,
-                    'price': price,
-                    'prev_close': prev,
-                    'change_pct': pct,
-                    'change_abs': round(price - prev, 2) if prev else None,
-                    'source': 'stooq',
-                }
-        except Exception:
-            pass
-    
-    # Fallback Yahoo
+
+    # Try Yahoo prima (regularMarketPrice è sempre allineato all'ultima sessione)
     if yahoo_sym:
         try:
             r = fetch_yahoo(yahoo_sym)
@@ -198,9 +184,27 @@ def fetch_one(logical_key, mapping, label):
                     'change_abs': round(price - prev, 2) if prev else None,
                     'source': 'yahoo',
                 }
+        except Exception:
+            pass
+
+    # Fallback Stooq (solo se Yahoo fallisce, e.g. rate limit)
+    if stooq_sym:
+        try:
+            r = fetch_stooq(stooq_sym)
+            if r and r.get('price') is not None and r.get('prev_close') is not None:
+                price, prev = r['price'], r['prev_close']
+                pct = round((price - prev) / prev * 100, 2) if prev else None
+                return {
+                    **out,
+                    'price': price,
+                    'prev_close': prev,
+                    'change_pct': pct,
+                    'change_abs': round(price - prev, 2) if prev else None,
+                    'source': 'stooq',
+                }
         except Exception as e:
             return {**out, 'error': str(e)[:80]}
-    
+
     return {**out, 'error': 'no_data'}
 
 
@@ -224,9 +228,20 @@ def build_markets():
             except Exception as e:
                 result[g][k] = {'error': str(e)[:80]}
     
-    # Aggiungi countdown giorni alla prossima riunione
+    # Stato mercati: weekend o aperto?
     from datetime import datetime, timezone
-    today = datetime.now(timezone.utc).date()
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date()
+    weekday = now_utc.weekday()  # 0=Mon, 5=Sat, 6=Sun
+    # CME futures: chiusi venerdì 22:00 UTC -> domenica 23:00 UTC
+    # Approssimazione: sabato sempre chiuso, domenica chiuso prima delle 23:00 UTC
+    is_weekend = weekday == 5 or (weekday == 6 and now_utc.hour < 23)
+    result['market_status'] = {
+        'us_futures_open': not is_weekend,
+        'is_weekend': is_weekend,
+        'weekday': weekday,
+    }
+
     cb_with_countdown = {}
     for k, v in CENTRAL_BANKS.items():
         try:
