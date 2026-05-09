@@ -20,10 +20,13 @@ _cache = {}
 CACHE_TTL = 300
 
 # Mapping noto ISIN -> Yahoo symbol (popolato dal primo lookup, persistente in memoria warm function)
-# Override manuali per ISIN dove l'auto-lookup sceglie un simbolo con poco storico
+# Override manuali: i 4 fondi societa' Missere sono hardcoded per evitare il v1/finance/search
+# (che genera 429 su Yahoo). Cosi' lookup_yahoo_symbol() ritorna immediato.
 ISIN_OVERRIDE = {
-    # Algebris Financial Credit Fund R EUR - W0B0.MU ha solo 1 punto, 0P000102IH.F ha 486 punti
-    'IE00B8J38129': '0P000102IH.F',
+    'IE000XRSHD49': '0P0001N260.F',  # Neuberger Berman Short Duration Euro Bond - 500 punti
+    'IE00B8J38129': '0P000102IH.F',  # Algebris Financial Credit - 486 punti (W0B0.MU ha solo 1 punto, evitato)
+    'IE0005FE8Z02': '0P0001QL5X.F',  # Man Global Investment Grade Opportunities - 485 punti
+    'LU2915465798': '0P0001UKBS.F',  # Asteria 2028 IG Corporate Bond - 308 punti
 }
 _isin_to_yahoo = dict(ISIN_OVERRIDE)
 
@@ -57,11 +60,22 @@ def lookup_yahoo_symbol(isin):
 
 
 def fetch_chart(symbol, range_param='10d', interval='1d'):
-    """ Yahoo v8/chart - range/interval configurabili """
+    """ Yahoo v8/chart - range/interval configurabili. Retry semplice contro 429. """
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?range={range_param}&interval={interval}"
-    req = urllib.request.Request(url, headers={'User-Agent': UA})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return json.loads(r.read().decode('utf-8'))
+    last_err = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept': 'application/json'})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.loads(r.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code == 429 and attempt < 2:
+                time.sleep(0.4 * (attempt + 1))
+                continue
+            raise
+    if last_err:
+        raise last_err
 
 
 def fetch_history(isin, range_param='2y', interval='1d'):
