@@ -94,6 +94,10 @@ class handler(BaseHTTPRequestHandler):
 
             symbols = [s.strip() for s in symbols_raw.split(",") if s.strip()][:30]
 
+            # all=1 -> restituisce TUTTE le news raccolte (senza filtro per relatedTickers)
+            # utile per la card "Tutte le news" che vuole anche le notizie macro/generiche.
+            include_all = (qs.get("all", ["0"])[0] or "0").lower() in ("1", "true", "yes")
+
             # Fetch in parallelo
             all_news = []
             with ThreadPoolExecutor(max_workers=8) as ex:
@@ -107,9 +111,9 @@ class handler(BaseHTTPRequestHandler):
             requested_base = {_base(s) for s in symbols if s}
             requested_full = {s.upper() for s in symbols if s}
 
-            # Deduplica per uuid (mantenendo prima occorrenza) e filtra news irrilevanti
-            # Una news è rilevante se ALMENO uno dei suoi relatedTickers matcha (full o base) un ticker richiesto.
-            # Riassegna `symbol` al primo relatedTicker matchante (così la UI mostra il ticker corretto, non quello casuale di ricerca).
+            # Deduplica per uuid (mantenendo prima occorrenza)
+            # Se include_all=False: filtra news irrilevanti (senza relatedTickers nei nostri holdings) e riassegna `symbol`
+            # Se include_all=True: tiene TUTTE le news, riassegna `symbol` solo se c'è match (altrimenti lascia il symbol di ricerca originale per debug)
             seen = set()
             deduped = []
             for n in all_news:
@@ -128,10 +132,16 @@ class handler(BaseHTTPRequestHandler):
                         if _base(rt) in requested_base:
                             primary = rt
                             break
-                if not primary:
-                    # Nessuna relazione coi nostri ticker → news generica, scarta
-                    continue
-                n["symbol"] = primary
+                if primary:
+                    n["symbol"] = primary
+                    n["matches_portfolio"] = True
+                else:
+                    if not include_all:
+                        # Nessuna relazione coi nostri ticker → news generica, scarta
+                        continue
+                    n["matches_portfolio"] = False
+                    # Per le news non-correlate, lascia symbol vuoto (UI non mostrerà tag)
+                    n["symbol"] = ""
                 seen.add(uid)
                 deduped.append(n)
 
