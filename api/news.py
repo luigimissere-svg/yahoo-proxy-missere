@@ -101,13 +101,37 @@ class handler(BaseHTTPRequestHandler):
             for lst in results:
                 all_news.extend(lst)
 
-            # Deduplica per uuid (mantenendo prima occorrenza)
+            # Costruisci set ticker "base" richiesti per il matching (rimuove suffisso .MI/.PA/.DE/.AS/.MC/.CO/.VI/.AT)
+            def _base(t):
+                return t.split(".")[0].upper() if t else ""
+            requested_base = {_base(s) for s in symbols if s}
+            requested_full = {s.upper() for s in symbols if s}
+
+            # Deduplica per uuid (mantenendo prima occorrenza) e filtra news irrilevanti
+            # Una news è rilevante se ALMENO uno dei suoi relatedTickers matcha (full o base) un ticker richiesto.
+            # Riassegna `symbol` al primo relatedTicker matchante (così la UI mostra il ticker corretto, non quello casuale di ricerca).
             seen = set()
             deduped = []
             for n in all_news:
                 uid = n.get("uuid")
                 if not uid or uid in seen:
                     continue
+                rel = [t for t in (n.get("relatedTickers") or []) if t]
+                # Trova il primo relatedTicker che matcha un ticker richiesto (full match prima, poi base)
+                primary = None
+                for rt in rel:
+                    if rt.upper() in requested_full:
+                        primary = rt
+                        break
+                if not primary:
+                    for rt in rel:
+                        if _base(rt) in requested_base:
+                            primary = rt
+                            break
+                if not primary:
+                    # Nessuna relazione coi nostri ticker → news generica, scarta
+                    continue
+                n["symbol"] = primary
                 seen.add(uid)
                 deduped.append(n)
 
