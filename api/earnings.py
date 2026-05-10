@@ -22,15 +22,19 @@ import time
 import urllib.parse
 import urllib.request
 
-FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY", "").strip()
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 _CACHE = {}  # (from,to) -> (timestamp, full_calendar)
 _CACHE_TTL = 1800  # 30 min
 
 
+def _get_finnhub_key():
+    return os.environ.get("FINNHUB_API_KEY", "").strip()
+
+
 def fetch_calendar(from_date: str, to_date: str):
-    if not FINNHUB_API_KEY:
+    api_key = _get_finnhub_key()
+    if not api_key:
         return None, "FINNHUB_API_KEY missing"
     cache_key = f"{from_date}:{to_date}"
     cached = _CACHE.get(cache_key)
@@ -41,7 +45,7 @@ def fetch_calendar(from_date: str, to_date: str):
         params = urllib.parse.urlencode({
             "from": from_date,
             "to": to_date,
-            "token": FINNHUB_API_KEY,
+            "token": api_key,
         })
         url = f"{FINNHUB_BASE}/calendar/earnings?{params}"
         req = urllib.request.Request(url, headers={"User-Agent": "PortfolioDashboard/1.0"})
