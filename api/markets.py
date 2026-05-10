@@ -161,31 +161,37 @@ def fetch_yahoo(symbol):
     }
 
 
+# Fallback ETF proxy per indici problematici (Yahoo a volte rate-limita ticker meno noti)
+ETF_PROXY = {
+    'STOXX50': 'FEZ',  # SPDR EURO STOXX 50 ETF (USD)
+    'RUSSELL': 'IWM',  # iShares Russell 2000 ETF (USD)
+    'ASX200':  'EWA',  # iShares MSCI Australia ETF (USD) -- correlato
+}
+
+
 def fetch_one(logical_key, mapping, label):
-    """Prova Yahoo prima (dati più freschi), poi Stooq come fallback.
-    NOTA: Stooq ha un bug noto: a volte restituisce close/prev_close di 1-2 sessioni indietro
-    anche se la data del CSV è corretta. Per questo Yahoo è ora la sorgente primaria.
-    """
+    """Prova Yahoo prima, poi Stooq, poi ETF proxy come ultima risorsa."""
     stooq_sym, yahoo_sym, _ = mapping
     out = {'label': label}
 
-    # Try Yahoo prima (regularMarketPrice è sempre allineato all'ultima sessione)
+    # Try Yahoo prima (regularMarketPrice allineato all'ultima sessione). Retry 1x.
     if yahoo_sym:
-        try:
-            r = fetch_yahoo(yahoo_sym)
-            if r and r.get('price') is not None:
-                price, prev = r['price'], r['prev_close']
-                pct = round((price - prev) / prev * 100, 2) if prev else None
-                return {
-                    **out,
-                    'price': price,
-                    'prev_close': prev,
-                    'change_pct': pct,
-                    'change_abs': round(price - prev, 2) if prev else None,
-                    'source': 'yahoo',
-                }
-        except Exception:
-            pass
+        for _attempt in range(2):
+            try:
+                r = fetch_yahoo(yahoo_sym)
+                if r and r.get('price') is not None:
+                    price, prev = r['price'], r['prev_close']
+                    pct = round((price - prev) / prev * 100, 2) if prev else None
+                    return {
+                        **out,
+                        'price': price,
+                        'prev_close': prev,
+                        'change_pct': pct,
+                        'change_abs': round(price - prev, 2) if prev else None,
+                        'source': 'yahoo',
+                    }
+            except Exception:
+                pass
 
     # Fallback Stooq (solo se Yahoo fallisce, e.g. rate limit)
     if stooq_sym:
@@ -202,8 +208,28 @@ def fetch_one(logical_key, mapping, label):
                     'change_abs': round(price - prev, 2) if prev else None,
                     'source': 'stooq',
                 }
-        except Exception as e:
-            return {**out, 'error': str(e)[:80]}
+        except Exception:
+            pass
+
+    # Ultimo tentativo: ETF proxy per indici problematici (STOXX50/Russell/ASX)
+    proxy_sym = ETF_PROXY.get(logical_key)
+    if proxy_sym:
+        try:
+            r = fetch_yahoo(proxy_sym)
+            if r and r.get('price') is not None:
+                price, prev = r['price'], r['prev_close']
+                pct = round((price - prev) / prev * 100, 2) if prev else None
+                return {
+                    **out,
+                    'price': price,
+                    'prev_close': prev,
+                    'change_pct': pct,
+                    'change_abs': round(price - prev, 2) if prev else None,
+                    'source': f'yahoo_proxy_{proxy_sym}',
+                    'note': f'ETF proxy {proxy_sym}',
+                }
+        except Exception:
+            pass
 
     return {**out, 'error': 'no_data'}
 
