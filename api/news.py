@@ -29,6 +29,79 @@ MARKETAUX_BASE = "https://api.marketaux.com/v1"
 NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "").strip()
 NEWSAPI_BASE = "https://newsapi.org/v2"
 
+# ---- Traduzione automatica (Google Translate endpoint pubblico) ----
+# Cache in-memory: { hash(text): (epoch, translated_text, detected_lang) }
+# TTL 6h. Si svuota a freddo del container Vercel.
+_TRANSLATE_CACHE = {}
+_TRANSLATE_TTL = 6 * 3600
+_TRANSLATE_MAX_CHARS = 1500  # tronca testi lunghi per non saturare l'endpoint
+
+
+def _translate_to_italian(text: str):
+    """Traduce 'text' in italiano usando Google Translate (endpoint gtx pubblico).
+    Ritorna (translated, detected_lang). Se il testo è già italiano o vuoto,
+    ritorna (text, 'it'). In caso di errore, ritorna (text, '?') senza alzare."""
+    if not text or len(text.strip()) < 3:
+        return (text or "", "?")
+    # Tronca testi lunghi (es. summary corposi)
+    src = text[:_TRANSLATE_MAX_CHARS]
+    cache_key = hash(src)
+    now = time.time()
+    cached = _TRANSLATE_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _TRANSLATE_TTL:
+        return (cached[1], cached[2])
+    try:
+        params = urllib.parse.urlencode({
+            "client": "gtx",
+            "sl": "auto",
+            "tl": "it",
+            "dt": "t",
+            "q": src,
+        })
+        url = f"https://translate.googleapis.com/translate_a/single?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        # data[0] = lista segmenti [[tradotto, originale, ...], ...]
+        # data[2] = lingua rilevata
+        translated = "".join(seg[0] for seg in (data[0] or []) if seg and seg[0])
+        detected = (data[2] if len(data) > 2 else "?") or "?"
+        if not translated:
+            translated = text
+        # Se la lingua rilevata è già italiano, non sovrascrivere (uguale all'originale)
+        if detected == "it":
+            translated = text
+        _TRANSLATE_CACHE[cache_key] = (now, translated, detected)
+        return (translated, detected)
+    except Exception:
+        return (text, "?")
+
+
+def translate_news_items(items: list, max_workers: int = 8):
+    """Aggiunge title_it, summary_it, _translated_from a ogni news item.
+    Esegue in parallelo per non bloccare la response.
+    Le voci già in italiano ottengono _translated_from='it' e title_it=title."""
+    if not items:
+        return items
+
+    def _process(it):
+        title = it.get("title") or ""
+        summary = it.get("summary") or it.get("description") or ""
+        t_title, lang_t = _translate_to_italian(title) if title else ("", "?")
+        # Riconosci la lingua dal titolo (più affidabile dei summary brevi)
+        if summary and lang_t != "it":
+            t_summary, _ = _translate_to_italian(summary)
+        else:
+            t_summary = summary
+        it["title_it"] = t_title
+        it["summary_it"] = t_summary
+        it["_translated_from"] = lang_t
+        return it
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        list(ex.map(_process, items))
+    return items
+
 # Mappa ticker -> nome cercabile per NewsAPI (azienda + alias notori)
 NEWSAPI_QUERY_MAP = {
     "NVDA": "Nvidia", "MSFT": "Microsoft", "MU": "Micron", "AMT": "American Tower",
@@ -533,6 +606,13 @@ class handler(BaseHTTPRequestHandler):
 
             # Tronca
             deduped = deduped[:limit]
+
+            # Traduzione automatica in italiano (Google Translate, cache 6h)
+            # Solo sui 'limit' articoli finali per risparmiare chiamate.
+            try:
+                translate_news_items(deduped, max_workers=8)
+            except Exception:
+                pass  # non blocca la response se il translator fallisce
 
             self._respond(200, {
                 "ok": True,
