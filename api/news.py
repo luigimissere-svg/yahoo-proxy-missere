@@ -23,6 +23,9 @@ from concurrent.futures import ThreadPoolExecutor
 FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY", "").strip()
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
+MARKETAUX_API_TOKEN = os.environ.get("MARKETAUX_API_TOKEN", "").strip()
+MARKETAUX_BASE = "https://api.marketaux.com/v1"
+
 
 def _is_us_ticker(t: str) -> bool:
     """True se il ticker non ha suffisso di mercato (.MI, .PA, .DE, .AS, .MC, .CO, .VI, .AT, .L, .SS)."""
@@ -67,6 +70,76 @@ def fetch_finnhub_company_news(symbol: str, days: int = 7, max_items: int = 8):
                 "relatedTickers": [n.get("related") or symbol],
                 "symbol": symbol,
                 "_source": "finnhub",
+            })
+        return out
+    except Exception:
+        return []
+
+
+def fetch_marketaux_news(symbols: list, max_items: int = 20):
+    """Scarica news da Marketaux per ticker (USA + EU). Restituisce lista normalizzata.
+
+    Marketaux usa il formato simbolo nativo (es. NVDA, ENI.MI, RACE.MI, ASML.AS).
+    Free tier: 100 richieste/giorno - usiamo una sola richiesta per tutti i ticker.
+    Lingua: english + italian.
+    """
+    if not MARKETAUX_API_TOKEN or not symbols:
+        return []
+    try:
+        params = urllib.parse.urlencode({
+            "symbols": ",".join(symbols[:50]),  # max 50 per chiamata
+            "filter_entities": "true",
+            "language": "en,it",
+            "limit": max_items,
+            "api_token": MARKETAUX_API_TOKEN,
+        })
+        url = f"{MARKETAUX_BASE}/news/all?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "PortfolioDashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        items = data.get("data", []) or []
+        out = []
+        for n in items:
+            entities = n.get("entities") or []
+            # Match ticker primario
+            primary = None
+            best_sentiment = None
+            for e in entities:
+                sym = e.get("symbol")
+                if sym and sym in symbols and not primary:
+                    primary = sym
+                if best_sentiment is None and e.get("sentiment_score") is not None:
+                    best_sentiment = e.get("sentiment_score")
+            if not primary and entities:
+                primary = entities[0].get("symbol") or ""
+            # Parse timestamp -> epoch
+            pub = n.get("published_at") or ""
+            ts_epoch = 0
+            try:
+                from datetime import datetime
+                ts_epoch = int(datetime.fromisoformat(pub.replace("Z", "+00:00")).timestamp())
+            except Exception:
+                ts_epoch = 0
+            sentiment_label = None
+            if best_sentiment is not None:
+                if best_sentiment > 0.15:
+                    sentiment_label = "positive"
+                elif best_sentiment < -0.15:
+                    sentiment_label = "negative"
+                else:
+                    sentiment_label = "neutral"
+            out.append({
+                "uuid": f"marketaux-{n.get('uuid')}",
+                "title": n.get("title"),
+                "publisher": n.get("source", "Marketaux"),
+                "link": n.get("url"),
+                "providerPublishTime": ts_epoch,
+                "type": "STORY",
+                "relatedTickers": [e.get("symbol") for e in entities if e.get("symbol")],
+                "symbol": primary or "",
+                "sentiment": sentiment_label,
+                "sentiment_score": best_sentiment,
+                "_source": "marketaux",
             })
         return out
     except Exception:
@@ -198,13 +271,13 @@ class handler(BaseHTTPRequestHandler):
             #   - Yahoo per TUTTI i ticker (già funziona, copre EU)
             #   - Finnhub per ticker USA (qualità superiore)
             #   - Finnhub general news se include_all
+            #   - Marketaux per TUTTI i ticker (USA + EU + sentiment + stampa italiana)
             all_news = []
-            with ThreadPoolExecutor(max_workers=10) as ex:
-                # Tasks futures
+            with ThreadPoolExecutor(max_workers=12) as ex:
                 yahoo_futs = [ex.submit(fetch_news_for_symbol, s) for s in symbols]
                 finn_futs = [ex.submit(fetch_finnhub_company_news, s) for s in us_tickers]
                 gen_fut = ex.submit(fetch_finnhub_general_news) if include_all else None
-                # Raccogli
+                marketaux_fut = ex.submit(fetch_marketaux_news, symbols, 25)
                 for f in yahoo_futs:
                     try:
                         all_news.extend(f.result(timeout=10) or [])
@@ -220,6 +293,10 @@ class handler(BaseHTTPRequestHandler):
                         all_news.extend(gen_fut.result(timeout=10) or [])
                     except Exception:
                         pass
+                try:
+                    all_news.extend(marketaux_fut.result(timeout=12) or [])
+                except Exception:
+                    pass
 
             # Costruisci set ticker "base" richiesti per il matching (rimuove suffisso .MI/.PA/.DE/.AS/.MC/.CO/.VI/.AT)
             def _base(t):
