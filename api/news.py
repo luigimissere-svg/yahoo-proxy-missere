@@ -42,12 +42,13 @@ NEWSAPI_QUERY_MAP = {
     "ALNOV.PA": "Albioma", "ALBIO.PA": "Albioma", "EL.PA": "EssilorLuxottica",
 }
 
-# Domini italiani affidabili (filtrati a valle)
+# Domini italiani PURAMENTE FINANZIARI (i generalisti come ANSA/Corriere/Repubblica
+# tirano dentro cronaca/sport/gossip anche cercando "borsa", quindi li escludo).
 ITALIAN_FIN_DOMAINS = {
-    "ilsole24ore.com", "repubblica.it", "ansa.it", "corriere.it",
-    "milanofinanza.it", "borsaitaliana.it", "finanzaonline.com",
-    "soldionline.it", "trend-online.com", "economyup.it",
-    "firstonline.info", "ilmessaggero.it", "lastampa.it",
+    "ilsole24ore.com", "milanofinanza.it", "borsaitaliana.it",
+    "finanzaonline.com", "soldionline.it", "trend-online.com",
+    "firstonline.info", "economyup.it", "investireoggi.it",
+    "teleborsa.it", "affariefinanza.repubblica.it",
 }
 
 # Pattern di esclusione per filtrare rumore (sport, gossip, gaming)
@@ -185,15 +186,16 @@ def fetch_newsapi_for_ticker(ticker: str, max_items: int = 5):
     if not company_name:
         return []
     try:
-        # Cerco su finanza/economia: 'NomeAzienda AND (azione OR borsa OR earnings OR mercato OR investitori)'
-        # Poi filtro a valle per dominio fidato.
-        query = f'"{company_name}" AND (azione OR borsa OR earnings OR mercato OR investitori OR ricavi OR utile OR trimestre OR shares)'
-        # Ultimi 3 giorni
+        # NewsAPI accetta UN solo language. Uso 'en' perché la copertura
+        # finanziaria seria è in inglese; le testate italiane le prendiamo
+        # con fetch_newsapi_italian_business via domains=.
+        # Query: nome azienda + termini equity in inglese.
+        query = f'"{company_name}" AND (earnings OR shares OR stock OR market OR revenue OR quarter)'
         from datetime import datetime as _dt, timedelta as _td
         from_date = (_dt.utcnow() - _td(days=3)).strftime("%Y-%m-%dT%H:%M:%S")
         params = urllib.parse.urlencode({
             "q": query,
-            "language": "it,en",
+            "language": "en",
             "sortBy": "publishedAt",
             "pageSize": min(max_items * 3, 20),
             "from": from_date,
@@ -251,12 +253,15 @@ def fetch_newsapi_italian_business(max_items: int = 15):
         return []
     try:
         domains = ",".join(sorted(ITALIAN_FIN_DOMAINS))
+        # Query semplice: NewsAPI gestisce meglio termini singoli ripetuti via OR.
+        # Filtriamo a valle con ITALIAN_FIN_DOMAINS (solo testate finanziarie)
+        # e con NEWSAPI_NOISE_KEYWORDS (no calcio/gossip).
         params = urllib.parse.urlencode({
-            "q": "borsa OR mercati OR azioni OR FTSE OR Piazza Affari OR Wall Street OR rendimento OR BTP OR Bce OR Fed",
+            "q": "borsa OR mercati OR azioni OR FTSE OR Piazza Affari OR rendimento OR spread OR BTP OR BCE OR Fed OR Wall Street",
             "domains": domains,
             "language": "it",
             "sortBy": "publishedAt",
-            "pageSize": max_items,
+            "pageSize": max_items * 2,
             "apiKey": NEWSAPI_KEY,
         })
         url = f"{NEWSAPI_BASE}/everything?{params}"
