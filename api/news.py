@@ -26,6 +26,37 @@ FINNHUB_BASE = "https://finnhub.io/api/v1"
 MARKETAUX_API_TOKEN = os.environ.get("MARKETAUX_API_TOKEN", "").strip()
 MARKETAUX_BASE = "https://api.marketaux.com/v1"
 
+NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "").strip()
+NEWSAPI_BASE = "https://newsapi.org/v2"
+
+# Mappa ticker -> nome cercabile per NewsAPI (azienda + alias notori)
+NEWSAPI_QUERY_MAP = {
+    "NVDA": "Nvidia", "MSFT": "Microsoft", "MU": "Micron", "AMT": "American Tower",
+    "META": "Meta Platforms",
+    "ASML.AS": "ASML", "ADYEN.AS": "Adyen", "NESN.SW": "Nestle",
+    "NOVO-B.CO": "Novo Nordisk", "RACE.MI": "Ferrari", "RHM.DE": "Rheinmetall",
+    "STM.MI": "STMicroelectronics", "ENI.MI": "Eni", "ENEL.MI": "Enel",
+    "ISP.MI": "Intesa Sanpaolo", "UCG.MI": "UniCredit", "CDP.MI": "Cassa Depositi",
+    "TIT.MI": "Telecom Italia", "VOW3.DE": "Volkswagen", "SAP.DE": "SAP",
+    "DTE.DE": "Deutsche Telekom",
+    "ALNOV.PA": "Albioma", "ALBIO.PA": "Albioma", "EL.PA": "EssilorLuxottica",
+}
+
+# Domini italiani affidabili (filtrati a valle)
+ITALIAN_FIN_DOMAINS = {
+    "ilsole24ore.com", "repubblica.it", "ansa.it", "corriere.it",
+    "milanofinanza.it", "borsaitaliana.it", "finanzaonline.com",
+    "soldionline.it", "trend-online.com", "economyup.it",
+    "firstonline.info", "ilmessaggero.it", "lastampa.it",
+}
+
+# Pattern di esclusione per filtrare rumore (sport, gossip, gaming)
+NEWSAPI_NOISE_KEYWORDS = (
+    "calcio", "football", "sampdoria", "reggiana", "forza horizon", "lego",
+    "playstation", "xbox", "meloni", "renzi", "garlasco", "omicidio",
+    "juventus", "milan", "inter", "napoli calcio", "premier league",
+)
+
 
 def _is_us_ticker(t: str) -> bool:
     """True se il ticker non ha suffisso di mercato (.MI, .PA, .DE, .AS, .MC, .CO, .VI, .AT, .L, .SS)."""
@@ -140,6 +171,127 @@ def fetch_marketaux_news(symbols: list, max_items: int = 20):
                 "sentiment": sentiment_label,
                 "sentiment_score": best_sentiment,
                 "_source": "marketaux",
+            })
+        return out
+    except Exception:
+        return []
+
+
+def fetch_newsapi_for_ticker(ticker: str, max_items: int = 5):
+    """Cerca news NewsAPI per uno specifico ticker, usando il nome azienda + filtri qualità."""
+    if not NEWSAPI_KEY:
+        return []
+    company_name = NEWSAPI_QUERY_MAP.get(ticker)
+    if not company_name:
+        return []
+    try:
+        # Cerco su finanza/economia: 'NomeAzienda AND (azione OR borsa OR earnings OR mercato OR investitori)'
+        # Poi filtro a valle per dominio fidato.
+        query = f'"{company_name}" AND (azione OR borsa OR earnings OR mercato OR investitori OR ricavi OR utile OR trimestre OR shares)'
+        # Ultimi 3 giorni
+        from datetime import datetime as _dt, timedelta as _td
+        from_date = (_dt.utcnow() - _td(days=3)).strftime("%Y-%m-%dT%H:%M:%S")
+        params = urllib.parse.urlencode({
+            "q": query,
+            "language": "it,en",
+            "sortBy": "publishedAt",
+            "pageSize": min(max_items * 3, 20),
+            "from": from_date,
+            "apiKey": NEWSAPI_KEY,
+        })
+        url = f"{NEWSAPI_BASE}/everything?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "PortfolioDashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("status") != "ok":
+            return []
+        articles = data.get("articles", []) or []
+        out = []
+        for a in articles:
+            title = (a.get("title") or "").strip()
+            if not title or len(title) < 12:
+                continue
+            # Filtra rumore
+            tl = title.lower()
+            if any(k in tl for k in NEWSAPI_NOISE_KEYWORDS):
+                continue
+            url_a = a.get("url") or ""
+            domain = url_a.split("//")[-1].split("/")[0].replace("www.", "") if url_a else ""
+            # Parse timestamp
+            pub = a.get("publishedAt") or ""
+            ts_epoch = 0
+            try:
+                from datetime import datetime as _dt2
+                ts_epoch = int(_dt2.fromisoformat(pub.replace("Z", "+00:00")).timestamp())
+            except Exception:
+                pass
+            out.append({
+                "uuid": f"newsapi-{abs(hash(url_a)) % (10**12)}",
+                "title": title,
+                "publisher": (a.get("source") or {}).get("name", "NewsAPI"),
+                "link": url_a,
+                "providerPublishTime": ts_epoch,
+                "type": "STORY",
+                "relatedTickers": [ticker],
+                "symbol": ticker,
+                "_source": "newsapi",
+                "_domain": domain,
+            })
+            if len(out) >= max_items:
+                break
+        return out
+    except Exception:
+        return []
+
+
+def fetch_newsapi_italian_business(max_items: int = 15):
+    """Top business headlines dalle testate finanziarie italiane.
+    Cerca termini market-wide e filtra per dominio."""
+    if not NEWSAPI_KEY:
+        return []
+    try:
+        domains = ",".join(sorted(ITALIAN_FIN_DOMAINS))
+        params = urllib.parse.urlencode({
+            "q": "borsa OR mercati OR azioni OR FTSE OR Piazza Affari OR Wall Street OR rendimento OR BTP OR Bce OR Fed",
+            "domains": domains,
+            "language": "it",
+            "sortBy": "publishedAt",
+            "pageSize": max_items,
+            "apiKey": NEWSAPI_KEY,
+        })
+        url = f"{NEWSAPI_BASE}/everything?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "PortfolioDashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("status") != "ok":
+            return []
+        articles = data.get("articles", []) or []
+        out = []
+        for a in articles:
+            title = (a.get("title") or "").strip()
+            if not title or len(title) < 12:
+                continue
+            tl = title.lower()
+            if any(k in tl for k in NEWSAPI_NOISE_KEYWORDS):
+                continue
+            url_a = a.get("url") or ""
+            pub = a.get("publishedAt") or ""
+            ts_epoch = 0
+            try:
+                from datetime import datetime as _dt3
+                ts_epoch = int(_dt3.fromisoformat(pub.replace("Z", "+00:00")).timestamp())
+            except Exception:
+                pass
+            out.append({
+                "uuid": f"newsapi-it-{abs(hash(url_a)) % (10**12)}",
+                "title": title,
+                "publisher": (a.get("source") or {}).get("name", "NewsAPI"),
+                "link": url_a,
+                "providerPublishTime": ts_epoch,
+                "type": "STORY",
+                "relatedTickers": [],
+                "symbol": "",
+                "_source": "newsapi",
             })
         return out
     except Exception:
@@ -278,6 +430,11 @@ class handler(BaseHTTPRequestHandler):
                 finn_futs = [ex.submit(fetch_finnhub_company_news, s) for s in us_tickers]
                 gen_fut = ex.submit(fetch_finnhub_general_news) if include_all else None
                 marketaux_fut = ex.submit(fetch_marketaux_news, symbols, 25)
+                # NewsAPI: 1 chiamata per ticker mappato (max 8 ticker per limitare uso quota)
+                # + 1 chiamata market-wide italiano se include_all
+                newsapi_tickers = [s for s in symbols if s in NEWSAPI_QUERY_MAP][:8]
+                newsapi_tk_futs = [ex.submit(fetch_newsapi_for_ticker, s, 4) for s in newsapi_tickers]
+                newsapi_it_fut = ex.submit(fetch_newsapi_italian_business, 12) if include_all else None
                 for f in yahoo_futs:
                     try:
                         all_news.extend(f.result(timeout=10) or [])
@@ -297,6 +454,16 @@ class handler(BaseHTTPRequestHandler):
                     all_news.extend(marketaux_fut.result(timeout=12) or [])
                 except Exception:
                     pass
+                for f in newsapi_tk_futs:
+                    try:
+                        all_news.extend(f.result(timeout=10) or [])
+                    except Exception:
+                        pass
+                if newsapi_it_fut is not None:
+                    try:
+                        all_news.extend(newsapi_it_fut.result(timeout=10) or [])
+                    except Exception:
+                        pass
 
             # Costruisci set ticker "base" richiesti per il matching (rimuove suffisso .MI/.PA/.DE/.AS/.MC/.CO/.VI/.AT)
             def _base(t):
