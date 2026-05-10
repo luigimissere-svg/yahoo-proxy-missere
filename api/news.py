@@ -148,6 +148,7 @@ def fetch_news_for_symbol(symbol: str, max_per_symbol: int = 6):
                 "type": n.get("type"),
                 "relatedTickers": n.get("relatedTickers", []),
                 "symbol": symbol,  # ticker richiesto (per filtraggio in UI)
+                "_source": "yahoo",
             })
         _CACHE[symbol] = (now, news_list)
         return news_list
