@@ -47,9 +47,9 @@ FX_TTL = 300                 # 5 minuti
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
 
-def yahoo_fetch(symbol: str, timeout: int = 6) -> dict:
+def yahoo_fetch(symbol: str, timeout: int = 6, range_param: str = "5d", interval: str = "1d") -> dict:
     """Scarica i dati di un singolo ticker da Yahoo Finance."""
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?range=5d&interval=1d"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?range={range_param}&interval={interval}"
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -58,8 +58,10 @@ def yahoo_fetch(symbol: str, timeout: int = 6) -> dict:
         return {"_error": str(e)}
 
 
-def parse_quote(j: dict) -> dict:
-    """Estrae price, prev_close (dal penultimo close della serie), currency."""
+def parse_quote(j: dict, with_series: bool = False) -> dict:
+    """Estrae price, prev_close (dal penultimo close della serie), currency.
+    Se with_series=True, include anche "series": [{date, close}] per il range richiesto.
+    """
     try:
         result = j["chart"]["result"][0]
         meta = result["meta"]
@@ -80,7 +82,7 @@ def parse_quote(j: dict) -> dict:
             prev = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
 
         var_pct = (price - prev) / prev * 100 if prev else 0.0
-        return {
+        out = {
             "price": round(price, 4),
             "prev_close": round(prev, 4),
             "currency": currency,
@@ -88,22 +90,32 @@ def parse_quote(j: dict) -> dict:
             "name": name,
             "exchange": exchange,
         }
+        if with_series:
+            import datetime as _dt
+            series = []
+            for t, c in pairs:
+                d = _dt.datetime.utcfromtimestamp(int(t)).strftime("%Y-%m-%d")
+                series.append({"date": d, "close": round(float(c), 4)})
+            out["series"] = series
+        return out
     except Exception as e:
         return {"_error": f"parse: {e}"}
 
 
-def get_quote_cached(symbol: str) -> dict:
-    """Restituisce il quote, usando cache se fresco."""
+def get_quote_cached(symbol: str, range_param: str = "5d", with_series: bool = False) -> dict:
+    """Restituisce il quote, usando cache se fresco. Cache key include il range."""
     now = time.time()
-    cached = _QUOTE_CACHE.get(symbol)
-    if cached and (now - cached[0]) < QUOTE_TTL:
+    cache_key = f"{symbol}|{range_param}|{int(with_series)}"
+    cached = _QUOTE_CACHE.get(cache_key)
+    ttl = QUOTE_TTL if range_param == "5d" else 3600  # cache 1h per range storici
+    if cached and (now - cached[0]) < ttl:
         return {**cached[1], "_cached": True}
-    j = yahoo_fetch(symbol)
+    j = yahoo_fetch(symbol, range_param=range_param)
     if "_error" in j:
         return {"_error": j["_error"]}
-    parsed = parse_quote(j)
+    parsed = parse_quote(j, with_series=with_series)
     if "_error" not in parsed:
-        _QUOTE_CACHE[symbol] = (now, parsed)
+        _QUOTE_CACHE[cache_key] = (now, parsed)
     return parsed
 
 
@@ -152,12 +164,17 @@ class handler(BaseHTTPRequestHandler):
             self._respond(400, {"ok": False, "error": "Max 50 simboli per richiesta"})
             return
 
+        # Parametro range opzionale (default 5d). Valori validi Yahoo: 1mo,3mo,6mo,ytd,1y,2y,5y,max
+        range_param = (params.get("range", ["5d"])[0] or "5d").strip().lower()
+        # series=1 per includere array {date, close} (utile per calcoli storici lato client)
+        with_series = params.get("series", ["0"])[0] == "1"
+
         # Fetch parallelo
         data = {}
         errors = {}
         any_cached = True
         with ThreadPoolExecutor(max_workers=10) as pool:
-            futs = {pool.submit(get_quote_cached, s): s for s in symbols}
+            futs = {pool.submit(get_quote_cached, s, range_param, with_series): s for s in symbols}
             for fut in as_completed(futs):
                 sym = futs[fut]
                 try:
