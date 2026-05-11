@@ -113,14 +113,66 @@ def fetch_history(isin, range_param='2y', interval='1d'):
         return {'isin': isin, 'error': str(e)[:80]}
 
 
+def fetch_ft(isin):
+    """Recupera NAV/data/var dal Financial Times. Fonte primaria per fondi UCITS."""
+    import re
+    url = f"https://markets.ft.com/data/funds/tearsheet/summary?s={isin}:EUR"
+    req = urllib.request.Request(url, headers={'User-Agent': UA})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            html = r.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        return None
+    out = {}
+    m = re.search(r'mod-ui-data-list__value[^>]*>([0-9]+\.[0-9]+)<', html)
+    if not m:
+        return None
+    out['nav'] = float(m.group(1))
+    md = re.search(r'as of ([A-Z][a-z]+ [0-9]{1,2} [0-9]{4})', html)
+    if md:
+        from datetime import datetime
+        try:
+            out['nav_date'] = datetime.strptime(md.group(1), '%b %d %Y').strftime('%Y-%m-%d')
+        except ValueError:
+            pass
+    mc = re.search(
+        r'mod-format--(pos|neg)"><i[^>]*arrow-(?:upwards|downwards)[^>]*></i>\s*([\-+]?[0-9]+\.[0-9]+)\s*/\s*([\-+]?[0-9]+\.[0-9]+)%',
+        html,
+    )
+    if mc:
+        sign = -1 if mc.group(1) == 'neg' else 1
+        out['change_abs'] = round(sign * abs(float(mc.group(2))), 4)
+        out['change_pct'] = round(sign * abs(float(mc.group(3))), 4)
+        if 'nav' in out and out['change_abs'] is not None:
+            out['prev_nav'] = round(out['nav'] - out['change_abs'], 4)
+    # Nome del fondo
+    mn = re.search(r'<title>([^<]+)</title>', html)
+    if mn:
+        title = mn.group(1).strip()
+        title = re.sub(r'\s*[|\-]\s*Financial Times.*$', '', title)
+        out['name'] = title[:120]
+    out['currency'] = 'EUR'
+    out['source'] = 'ft'
+    return out
+
+
 def fetch_nav(isin):
-    """ Restituisce dict normalizzato per un singolo ISIN """
+    """Restituisce dict normalizzato per un singolo ISIN. Strategia: FT primario, Yahoo fallback."""
     out = {'isin': isin}
+
+    # 1) Prova prima Financial Times (più tempestivo, no rate-limit aggressivo)
+    ft_data = fetch_ft(isin)
+    if ft_data and ft_data.get('nav'):
+        out.update(ft_data)
+        return out
+
+    # 2) Fallback Yahoo Finance
     sym = lookup_yahoo_symbol(isin)
     if not sym:
         out['error'] = 'symbol_not_found'
         return out
     out['yahoo_symbol'] = sym
+    out['source'] = 'yahoo'
     try:
         data = fetch_chart(sym)
         result = data.get('chart', {}).get('result', [])
