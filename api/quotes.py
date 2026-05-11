@@ -1,35 +1,19 @@
 """
-Vercel Serverless Function — proxy a Yahoo Finance con CORS aperto + cache 60s.
+Vercel Serverless Function — proxy quotazioni con CORS aperto + cache 60s.
 
 Endpoint:
   GET /api/quotes?symbols=MSFT,UCG.MI,ASML.AS,...
 
-Restituisce:
-  {
-    "ok": true,
-    "ts": "2026-05-08T17:15:00+00:00",
-    "cached": false,
-    "fx_eur": {"USD": 0.85, "DKK": 0.134},
-    "data": {
-      "MSFT": {
-        "price": 414.83,
-        "prev_close": 420.77,
-        "currency": "USD",
-        "variazione_pct": -1.41,
-        "name": "Microsoft Corporation",
-        "exchange": "NMS"
-      },
-      ...
-    },
-    "errors": {"TICKER": "msg"} // solo se ci sono errori
-  }
+Logica:
+  1. Google Finance (primario) — scraping HTML, prezzi live SSR per UA "curl/wget-like"
+  2. Yahoo Finance (fallback) — quando Google non ha il simbolo (es. watchlist .L/.PA)
+  3. FX live da Google Finance (EUR/USD, EUR/GBP, EUR/DKK)
 
-Note:
-- Cache in-memory di 60s (warm function).
-- User-Agent Mozilla per evitare 429.
-- Conversione FX automatica (cache 5 min).
+Il simbolo richiesto dal frontend è in formato Yahoo (es. PRY.MI, KTN.DE, NOV.DE).
+Lo mappiamo internamente al formato Google (PRY:BIT, KTN:ETR, NOV:ETR).
 """
 import json
+import re
 import time
 import urllib.request
 import urllib.error
@@ -39,18 +23,145 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 
 # Cache globale (persiste finché la function è "calda")
-_QUOTE_CACHE: dict = {}      # symbol -> (timestamp, data)
-_FX_CACHE: dict = {}         # ccy -> (timestamp, rate_to_eur)
-QUOTE_TTL = 60               # 60 secondi
-FX_TTL = 300                 # 5 minuti
+_QUOTE_CACHE: dict = {}
+_FX_CACHE: dict = {}
+QUOTE_TTL = 60
+FX_TTL = 300
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+# User-Agent semplice: Google serve HTML SSR con data-last-price SOLO per agenti non-browser
+UA_GOOGLE = "curl/7.81.0"
+UA_YAHOO = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
+# Cookie SOCS bypassa GDPR di Google
+GOOGLE_COOKIE = "SOCS=CAISHAgCEhJnd3NfMjAyNjA0MjAtMF9SQzEaAmVuIAEaBgiAqruyBg"
+
+# Mappa Yahoo symbol → Google Finance symbol (per i ticker che vogliamo da Google)
+YAHOO_TO_GOOGLE = {
+    # USA
+    "MSFT": "MSFT:NASDAQ", "GOOGL": "GOOGL:NASDAQ", "AMZN": "AMZN:NASDAQ",
+    "META": "META:NASDAQ", "NVDA": "NVDA:NASDAQ", "MU": "MU:NASDAQ",
+    "BKNG": "BKNG:NASDAQ", "WMT": "WMT:NASDAQ", "AMT": "AMT:NYSE",
+    # Italia
+    "UCG.MI": "UCG:BIT", "PRY.MI": "PRY:BIT", "ENEL.MI": "ENEL:BIT", "RACE.MI": "RACE:BIT",
+    # Germania / Xetra
+    "NEM.DE": "NEM:ETR", "MBG.DE": "MBG:ETR", "KTN.DE": "KTN:ETR",
+    "NOV.DE": "NOV:ETR", "PCZ.DE": "PCZ:ETR",
+    # Olanda / Spagna
+    "ASML.AS": "ASML:AMS", "ADYEN.AS": "ADYEN:AMS",
+    "IBE.MC": "IBE:BME",
+    # Watchlist Francia (Euronext Paris)
+    "ALNOV.PA": "ALNOV:EPA", "ALBIO.PA": "ALBIO:EPA",
+    "EL.PA": "EL:EPA", "BNP.PA": "BNP:EPA", "TTE.PA": "TTE:EPA",
+    # Watchlist UK / Danimarca
+    "DGE.L": "DGE:LON", "PRU.L": "PRU:LON", "MRO.L": "MRO:LON",
+    "GMAB.CO": "GMAB:CPH",
+    # Vecchi alias (Vienna/Copenhagen → Xetra)
+    "KTN.VI": "KTN:ETR",
+    "NOVO-B.CO": "NOV:ETR",
+}
+
+GOOGLE_CURRENCY = {
+    "BIT": "EUR", "ETR": "EUR", "EPA": "EUR", "BME": "EUR", "AMS": "EUR",
+    "FRA": "EUR", "MIL": "EUR", "VIE": "EUR",
+    "CPH": "DKK", "LON": "GBX", "STO": "SEK",
+    "NASDAQ": "USD", "NYSE": "USD", "NYSEARCA": "USD",
+}
+
+
+# =============================================================================
+# GOOGLE FINANCE
+# =============================================================================
+
+def google_fetch(google_symbol: str, timeout: int = 6) -> dict:
+    """Fetch prezzo + prev_close + valuta da Google Finance via scraping HTML."""
+    url = f"https://www.google.com/finance/quote/{google_symbol}"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA_GOOGLE,
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cookie": GOOGLE_COOKIE,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        return {"_error": f"google_fetch: {e}"}
+
+    m = re.search(r'data-last-price="([0-9.]+)"', html)
+    if not m:
+        return {"_error": "google: no data-last-price"}
+    price = float(m.group(1))
+
+    cm = re.search(r'data-currency-code="([A-Z]+)"', html)
+    if cm:
+        ccy = cm.group(1)
+    else:
+        exch = google_symbol.split(":")[1] if ":" in google_symbol else ""
+        ccy = GOOGLE_CURRENCY.get(exch, "USD")
+
+    # Prev close: classe P6K39c subito dopo "Previous close"
+    prev = None
+    pc_idx = html.find("Previous close")
+    if pc_idx > 0:
+        tail = html[pc_idx:pc_idx + 800]
+        pm = re.search(r'class="P6K39c"[^>]*>([^<]+)<', tail)
+        if pm:
+            raw = pm.group(1).strip()
+            num = re.sub(r'[^\d.,-]', '', raw).replace(',', '')
+            try:
+                prev = float(num)
+            except ValueError:
+                pass
+
+    # Name: cerca <h1> con classe specifica
+    name = google_symbol.split(":")[0]
+    nm = re.search(r'class="zzDege"[^>]*>([^<]+)<', html)
+    if nm:
+        name = nm.group(1).strip()
+
+    if prev is None:
+        prev = price
+    var_pct = (price - prev) / prev * 100 if prev else 0.0
+
+    return {
+        "price": round(price, 4),
+        "prev_close": round(prev, 4),
+        "currency": ccy,
+        "variazione_pct": round(var_pct, 2),
+        "name": name,
+        "exchange": google_symbol.split(":")[1] if ":" in google_symbol else "",
+        "source": "google",
+    }
+
+
+def google_fx_to_eur(ccy: str) -> float:
+    """Cambio 1 CCY → EUR via Google Finance."""
+    if not ccy or ccy == "EUR":
+        return 1.0
+    url = f"https://www.google.com/finance/quote/EUR-{ccy}"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA_GOOGLE,
+        "Cookie": GOOGLE_COOKIE,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+        m = re.search(r'data-last-price="([0-9.]+)"', html)
+        if m:
+            rate = float(m.group(1))  # quanti CCY per 1 EUR
+            return 1.0 / rate if rate else 0.0
+    except Exception:
+        pass
+    return {"USD": 0.85, "DKK": 0.134, "GBP": 1.18, "CHF": 1.05, "SEK": 0.09}.get(ccy, 1.0)
+
+
+# =============================================================================
+# YAHOO FINANCE (fallback)
+# =============================================================================
 
 def yahoo_fetch(symbol: str, timeout: int = 6, range_param: str = "5d", interval: str = "1d") -> dict:
-    """Scarica i dati di un singolo ticker da Yahoo Finance."""
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?range={range_param}&interval={interval}"
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    req = urllib.request.Request(url, headers={"User-Agent": UA_YAHOO})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
@@ -58,10 +169,7 @@ def yahoo_fetch(symbol: str, timeout: int = 6, range_param: str = "5d", interval
         return {"_error": str(e)}
 
 
-def parse_quote(j: dict, with_series: bool = False) -> dict:
-    """Estrae price, prev_close (dal penultimo close della serie), currency.
-    Se with_series=True, include anche "series": [{date, close}] per il range richiesto.
-    """
+def yahoo_parse(j: dict, with_series: bool = False) -> dict:
     try:
         result = j["chart"]["result"][0]
         meta = result["meta"]
@@ -70,7 +178,6 @@ def parse_quote(j: dict, with_series: bool = False) -> dict:
         name = meta.get("longName") or meta.get("shortName") or meta.get("symbol", "")
         exchange = meta.get("exchangeName", "")
 
-        # prev_close = penultimo close della serie storica (close di ieri)
         timestamps = result.get("timestamp") or []
         closes = (result.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
         pairs = [(t, c) for t, c in zip(timestamps, closes) if c is not None]
@@ -89,6 +196,7 @@ def parse_quote(j: dict, with_series: bool = False) -> dict:
             "variazione_pct": round(var_pct, 2),
             "name": name,
             "exchange": exchange,
+            "source": "yahoo",
         }
         if with_series:
             import datetime as _dt
@@ -102,38 +210,59 @@ def parse_quote(j: dict, with_series: bool = False) -> dict:
         return {"_error": f"parse: {e}"}
 
 
-def get_quote_cached(symbol: str, range_param: str = "5d", with_series: bool = False) -> dict:
-    """Restituisce il quote, usando cache se fresco. Cache key include il range."""
+# =============================================================================
+# ORCHESTRAZIONE
+# =============================================================================
+
+def get_quote(symbol: str, range_param: str = "5d", with_series: bool = False) -> dict:
+    """Google primario, Yahoo fallback. Cache 60s.
+
+    Per range != "5d" o with_series=True → forza Yahoo (Google non espone serie storica via scraping).
+    """
     now = time.time()
     cache_key = f"{symbol}|{range_param}|{int(with_series)}"
     cached = _QUOTE_CACHE.get(cache_key)
-    ttl = QUOTE_TTL if range_param == "5d" else 3600  # cache 1h per range storici
+    ttl = QUOTE_TTL if range_param == "5d" else 3600
     if cached and (now - cached[0]) < ttl:
         return {**cached[1], "_cached": True}
-    j = yahoo_fetch(symbol, range_param=range_param)
+
+    # Per serie storiche → Yahoo (Google scraping non le ha)
+    if range_param != "5d" or with_series:
+        j = yahoo_fetch(symbol, range_param=range_param)
+        if "_error" in j:
+            return {"_error": j["_error"]}
+        parsed = yahoo_parse(j, with_series=with_series)
+        if "_error" not in parsed:
+            _QUOTE_CACHE[cache_key] = (now, parsed)
+        return parsed
+
+    # Google Finance primario
+    g_sym = YAHOO_TO_GOOGLE.get(symbol)
+    if g_sym:
+        parsed = google_fetch(g_sym)
+        if "_error" not in parsed:
+            _QUOTE_CACHE[cache_key] = (now, parsed)
+            return parsed
+        # Fall through a Yahoo
+
+    # Yahoo fallback
+    j = yahoo_fetch(symbol)
     if "_error" in j:
         return {"_error": j["_error"]}
-    parsed = parse_quote(j, with_series=with_series)
+    parsed = yahoo_parse(j)
     if "_error" not in parsed:
         _QUOTE_CACHE[cache_key] = (now, parsed)
     return parsed
 
 
 def get_fx_to_eur(ccy: str) -> float:
-    """Tasso di cambio: 1 unità di ccy in EUR."""
     if not ccy or ccy == "EUR":
         return 1.0
     now = time.time()
     cached = _FX_CACHE.get(ccy)
     if cached and (now - cached[0]) < FX_TTL:
         return cached[1]
-    j = yahoo_fetch(f"EUR{ccy}=X")
-    try:
-        rate_per_eur = float(j["chart"]["result"][0]["meta"]["regularMarketPrice"])
-        rate = 1.0 / rate_per_eur
-    except Exception:
-        # Fallback approssimati
-        rate = {"USD": 0.85, "DKK": 0.134, "GBP": 1.18, "CHF": 1.05}.get(ccy, 1.0)
+    rate = google_fx_to_eur(ccy)
     _FX_CACHE[ccy] = (now, rate)
     return rate
 
@@ -151,7 +280,6 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        # Parse query
         parsed_url = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed_url.query)
         symbols_raw = params.get("symbols", [""])[0]
@@ -164,17 +292,14 @@ class handler(BaseHTTPRequestHandler):
             self._respond(400, {"ok": False, "error": "Max 50 simboli per richiesta"})
             return
 
-        # Parametro range opzionale (default 5d). Valori validi Yahoo: 1mo,3mo,6mo,ytd,1y,2y,5y,max
         range_param = (params.get("range", ["5d"])[0] or "5d").strip().lower()
-        # series=1 per includere array {date, close} (utile per calcoli storici lato client)
         with_series = params.get("series", ["0"])[0] == "1"
 
-        # Fetch parallelo
         data = {}
         errors = {}
         any_cached = True
         with ThreadPoolExecutor(max_workers=10) as pool:
-            futs = {pool.submit(get_quote_cached, s, range_param, with_series): s for s in symbols}
+            futs = {pool.submit(get_quote, s, range_param, with_series): s for s in symbols}
             for fut in as_completed(futs):
                 sym = futs[fut]
                 try:
@@ -184,13 +309,11 @@ class handler(BaseHTTPRequestHandler):
                     else:
                         if not q.get("_cached"):
                             any_cached = False
-                        # rimuovi flag interno
                         q.pop("_cached", None)
                         data[sym] = q
                 except Exception as e:
                     errors[sym] = str(e)
 
-        # FX (precarica le valute uniche)
         currencies = {q["currency"] for q in data.values() if q.get("currency")}
         fx_eur = {ccy: round(get_fx_to_eur(ccy), 6) for ccy in currencies if ccy != "EUR"}
 
