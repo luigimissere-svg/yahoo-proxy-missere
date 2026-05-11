@@ -140,9 +140,16 @@ def fetch_nav(isin):
         prev_ts, prev = pairs[-2] if len(pairs) >= 2 else (None, None)
         chg_pct = ((last - prev) / prev * 100) if prev else None
         chg_abs = (last - prev) if prev else None
-        # Data NAV in formato YYYY-MM-DD da timestamp
+        # Data NAV: cerca all'indietro l'ULTIMO timestamp in cui il NAV è CAMBIATO
+        # (Yahoo a volte ripete il NAV precedente con timestamp odierno per fondi T+1).
         from datetime import datetime, timezone
-        nav_date = datetime.fromtimestamp(last_ts, tz=timezone.utc).strftime('%Y-%m-%d')
+        nav_change_ts = last_ts
+        for i in range(len(pairs) - 2, -1, -1):
+            ti, ci = pairs[i]
+            if abs(ci - last) > 1e-6:
+                nav_change_ts = pairs[i + 1][0]
+                break
+        nav_date = datetime.fromtimestamp(nav_change_ts, tz=timezone.utc).strftime('%Y-%m-%d')
         out.update({
             'name': meta.get('shortName') or meta.get('longName') or sym,
             'currency': meta.get('currency', 'EUR'),
