@@ -1,0 +1,62 @@
+name: data-lake-refresh
+
+# Refresh incrementale del data lake v3.0
+# Esegue ogni domenica notte (Europa) → aggiorna OHLCV ai più recenti
+# NOTA: aggiorna SOLO i ticker già presenti. Per aggiungerne nuovi serve
+# rieseguire ingestion/initial_download.py in locale.
+
+on:
+  schedule:
+    # Domenica 23:00 UTC (= Lunedì 01:00 CEST)
+    - cron: '0 23 * * 0'
+  workflow_dispatch:
+    inputs:
+      benchmarks_only:
+        description: "Refresh solo benchmarks (più veloce)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-lake-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v3-quant-framework
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r quant_v3/ingestion/requirements.txt
+
+      - name: Run refresh
+        working-directory: quant_v3
+        run: |
+          if [ "${{ github.event.inputs.benchmarks_only }}" = "true" ]; then
+            python ingestion/refresh_lake.py --benchmarks-only
+          else
+            python ingestion/refresh_lake.py
+          fi
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add quant_v3/data/
+          if git diff --staged --quiet; then
+            echo "Nessuna modifica al lake"
+          else
+            git commit -m "data-lake: weekly refresh $(date -u +%Y-%m-%d) [skip ci]"
+            git push origin v3-quant-framework
+          fi
