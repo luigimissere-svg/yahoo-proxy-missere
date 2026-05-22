@@ -1,14 +1,17 @@
 """
 Vercel Function: GET /api/signals-cache
 
-Smart cache per l'algoritmo Segnali v2.0:
-  - Se l'ultimo snapshot committato in data/signals_v2_snapshot.json ha età <30 min
-    → restituisce direttamente quel JSON (istantaneo, zero chiamate Yahoo)
-  - Altrimenti → chiama /api/signals-run per ricalcolare live (e ottenere fresh data)
+Legge lo snapshot Segnali v2.0 generato e committato da GitHub Actions.
 
-Questo è l'endpoint che il bottone "Aggiorna segnali" della dashboard deve chiamare.
+Strategia:
+  1. Legge data/signals_v2_snapshot.json dal repo via GitHub raw CDN (cache 60s function-level)
+  2. Calcola età dello snapshot (in minuti)
+  3. Ritorna il payload con metadata: from_committed_snapshot, snapshot_age_min, next_cron_at
 
-Cache 30 min lato server.
+Il bottone "Aggiorna segnali" della dashboard può chiamare /api/signals-trigger
+per forzare un nuovo run on-demand via GitHub Actions workflow_dispatch.
+
+Cache 60s lato server.
 """
 from http.server import BaseHTTPRequestHandler
 import json
@@ -18,27 +21,42 @@ import urllib.request
 import urllib.parse
 from datetime import datetime, timezone
 
-SNAPSHOT_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "signals_v2_snapshot.json")
-FRESH_TTL_MIN = 30  # se snapshot più recente di questo → usa cache, altrimenti ricalcola
+GH_OWNER = os.environ.get("GH_OWNER", "luigimissere-svg")
+GH_REPO = os.environ.get("GH_REPO", "yahoo-proxy-missere")
+GH_BRANCH = os.environ.get("GH_BRANCH", "main")
+SNAPSHOT_PATH = "data/signals_v2_snapshot.json"
 
-# Self URL: il proxy chiama sé stesso. In dev usa localhost, in prod il dominio Vercel.
-SELF_BASE = os.environ.get("VERCEL_URL")
-SELF_URL = f"https://{SELF_BASE}" if SELF_BASE else "https://yahoo-proxy-missere.vercel.app"
+RAW_URL = f"https://raw.githubusercontent.com/{GH_OWNER}/{GH_REPO}/{GH_BRANCH}/{SNAPSHOT_PATH}"
+
+_CACHE = {"ts": 0, "data": None}
+_CACHE_TTL = 60
 
 
-def load_local_snapshot():
-    """Legge data/signals_v2_snapshot.json (committato dal cron)."""
+def fetch_snapshot_from_github():
+    """Legge l'ultimo snapshot dal raw GitHub CDN."""
+    now = time.time()
+    if _CACHE["data"] is not None and (now - _CACHE["ts"]) < _CACHE_TTL:
+        return _CACHE["data"], True  # from function cache
+
+    req = urllib.request.Request(
+        RAW_URL,
+        headers={"User-Agent": "PatrimonioMissere-signals-cache/1.0"},
+    )
     try:
-        with open(SNAPSHOT_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return None
-    except Exception:
-        return None
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        _CACHE["data"] = data
+        _CACHE["ts"] = now
+        return data, False
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"ok": False, "error": "snapshot not yet generated (run GitHub Action first)"}, False
+        return {"ok": False, "error": f"github_raw_http_{e.code}"}, False
+    except Exception as e:
+        return {"ok": False, "error": f"github_raw: {str(e)[:120]}"}, False
 
 
 def age_minutes(snapshot):
-    """Quanti minuti sono passati dal generated_at."""
     try:
         gen = snapshot.get("generated_at")
         if not gen:
@@ -50,17 +68,32 @@ def age_minutes(snapshot):
         return None
 
 
-def call_signals_run(commit=False):
-    """Chiama /api/signals-run per ricalcolare."""
-    url = SELF_URL + "/api/signals-run"
-    if commit:
-        url += "?commit=1"
-    req = urllib.request.Request(url, headers={"User-Agent": "signals-cache-proxy"})
-    try:
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        return {"ok": False, "error": f"signals_run_call: {str(e)[:120]}"}
+def next_cron_at():
+    """Ritorna timestamp ISO del prossimo cron schedulato (più vicino)."""
+    now = datetime.now(timezone.utc)
+    weekday = now.weekday()  # 0=lun, 6=dom
+    # Cron UTC: 08:00, 12:00, 15:35, 20:05 nei giorni 0-4 (lun-ven)
+    targets_utc = [(8, 0), (12, 0), (15, 35), (20, 5)]
+    candidates = []
+    for days_ahead in range(0, 7):
+        d = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        d = d.replace(day=d.day) if days_ahead == 0 else d
+        try:
+            d_target = d.replace(hour=0, minute=0)
+            from datetime import timedelta
+            d_target = d_target + timedelta(days=days_ahead)
+        except Exception:
+            continue
+        if d_target.weekday() > 4:
+            continue
+        for h, m in targets_utc:
+            t = d_target.replace(hour=h, minute=m)
+            if t > now:
+                candidates.append(t)
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[0].isoformat()
 
 
 class handler(BaseHTTPRequestHandler):
@@ -75,24 +108,26 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            qs = urllib.parse.urlparse(self.path).query
-            params = urllib.parse.parse_qs(qs)
-            force = params.get("force", ["0"])[0] == "1"
+            snap, from_func_cache = fetch_snapshot_from_github()
 
-            snap = load_local_snapshot()
-            if snap and not force:
-                age = age_minutes(snap)
-                if age is not None and age < FRESH_TTL_MIN:
-                    snap["from_committed_snapshot"] = True
-                    snap["snapshot_age_min"] = round(age, 1)
-                    return self._send(200, snap)
+            if not snap.get("ok") if isinstance(snap.get("ok"), bool) else (snap.get("error") is not None):
+                # Errore o snapshot mancante
+                return self._send(200, {
+                    "ok": False,
+                    "error": snap.get("error", "unknown"),
+                    "next_cron_at": next_cron_at(),
+                })
 
-            # Snapshot vecchio o mancante → ricalcola
-            fresh = call_signals_run(commit=False)
-            fresh["from_committed_snapshot"] = False
-            if snap:
-                fresh["previous_snapshot_age_min"] = round(age_minutes(snap) or 0, 1)
-            return self._send(200, fresh)
+            age = age_minutes(snap)
+            payload = dict(snap)
+            payload["ok"] = True
+            payload["from_committed_snapshot"] = True
+            payload["from_function_cache"] = from_func_cache
+            payload["snapshot_age_min"] = round(age, 1) if age is not None else None
+            payload["next_cron_at"] = next_cron_at()
+            payload["raw_url"] = RAW_URL
+
+            return self._send(200, payload)
 
         except Exception as e:
             return self._send(500, {"ok": False, "error": str(e)[:200]})

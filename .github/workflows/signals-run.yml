@@ -1,0 +1,71 @@
+name: Signals v2.0 - Run & Commit
+
+on:
+  schedule:
+    # 4 esecuzioni per giorno feriale (orari UTC, mercati EU/US)
+    - cron: '0 8 * * 1-5'    # 10:00 CEST - apertura EU
+    - cron: '0 12 * * 1-5'   # 14:00 CEST - pre apertura US
+    - cron: '35 15 * * 1-5'  # 17:35 CEST - post chiusura EU
+    - cron: '5 20 * * 1-5'   # 22:05 CEST - post chiusura US
+  workflow_dispatch:
+    # Permette trigger on-demand dal bottone della dashboard via API
+    inputs:
+      reason:
+        description: 'Motivo del run on-demand'
+        required: false
+        default: 'manual trigger'
+
+permissions:
+  contents: write  # serve per committare il JSON
+
+concurrency:
+  group: signals-run
+  cancel-in-progress: false  # non cancellare run in corso
+
+jobs:
+  run-signals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run signals engine
+        env:
+          SNAPSHOT_OUT: ${{ github.workspace }}/data/signals_v2_snapshot.json
+        run: |
+          mkdir -p data
+          python scripts/signals_v2_engine.py 2>&1 | tee /tmp/signals_run.log
+          # Verifica output non vuoto
+          if [ ! -s "$SNAPSHOT_OUT" ]; then
+            echo "::error::Snapshot vuoto, run fallito"
+            exit 1
+          fi
+          # Stampa stats
+          python -c "
+          import json
+          with open('$SNAPSHOT_OUT') as f: d = json.load(f)
+          print(f\"Engine v{d.get('engine_version','?')}, signals: {d.get('total_signals',0)}\")
+          print(f\"Bench EU: {d.get('benchmark',{}).get('ftse_mib_var')}, US: {d.get('benchmark',{}).get('sp500_var')}\")
+          "
+
+      - name: Commit & push snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/signals_v2_snapshot.json
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica al snapshot, skip commit"
+          else
+            REASON="${{ github.event.inputs.reason || 'scheduled' }}"
+            git commit -m "signals: snapshot v2 ($REASON) [skip ci]"
+            git push
+          fi
