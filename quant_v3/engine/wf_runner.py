@@ -91,17 +91,23 @@ def make_backtest_runner(
     sector_map_cache: Dict[str, str],
     beta_map_cache: Dict[str, float],
     fixed_params: Dict[str, Any],
-    warmup_calendar_days: int = 120,
+    warmup_calendar_days: int = 365,
 ):
     """
     Costruisce una callback `run_backtest(params, start, end) → RunMetrics`.
 
     `bundles` è il dict ticker → DataBundle pre-caricato dal data lake.
-    `warmup_calendar_days` arretra il feed `fromdate` per dare alla strategia
-    bar storici DA CONSUMARE prima della data `start`. Con SMA WF(60) e
-    warmup_bars=60 servono ≥90 calendar days; usiamo 120 per margine.
-    Il data lake parte da 2024-05-08, quindi per fold IS da 2024-08-01
-    abbiamo ~85 calendar days disponibili in coda — il feed clampa automaticamente.
+    `warmup_calendar_days` arretra il feed `fromdate` per dare a backtrader
+    bar storici sufficienti a far 'scaldare' gli indicatori PRIMA del fold start.
+    Con SMA(200) il minperiod è 200 bar trading ≈ 280 calendar days; usiamo
+    365 (1 anno) per margine.
+
+    Importante (Fase 4 estesa): warmup totale = minperiod (200 bar SMA200)
+    + warmup_bars esplicito (default 50) = 250 bar. Backtrader attende il
+    minperiod automaticamente (prenext), poi la strategia aggiunge i
+    warmup_bars espliciti per stabilizzare segnali compositi prima del
+    primo trade. Pre-roll richiesto: ≥ 250 business days dal feed start
+    al fold IS start.
     """
     import datetime as _dt
 
@@ -290,9 +296,10 @@ def parse_args():
     # Fixed params (defaults Fase 3)
     p.add_argument('--max-positions', type=int, default=10)
     p.add_argument('--per-ticker-cap', type=float, default=0.10)
-    p.add_argument('--warmup-bars', type=int, default=60,
-                   help="Warmup bars strategy. Default 60 per WF (vs 200 standard) "
-                        "per fittare nel data lake disponibile dal 2024-05-08.")
+    p.add_argument('--warmup-bars', type=int, default=50,
+                   help="Warmup bars strategy explicit (default 50). "
+                        "Backtrader aggiunge automaticamente i 200 bar di "
+                        "minperiod SMA200 → warmup totale = 250 bar.")
     p.add_argument('--metadata-path', type=str,
                    default='data/meta/sector_beta.parquet')
     # Anti-overfitting
@@ -363,32 +370,12 @@ def main():
         print(f"  {k}: {vs}")
 
     # ── Fixed params (defaults Fase 3) ───────────────────────────────────
-    # FIX Fase 4: TrendModule default usa SMA(200) che richiede 200 bar.
-    # Per fold OOS di 3 mesi (~63 bar) + warmup feed di ~100 bar
-    # non bastano. Costruisco una versione 'WF' del trend module con
-    # sma_long ridotto a 60 bar (≈ 3 mesi) per non bloccare i feed.
-    from engine.modules import (
-        DEFAULT_MODULES, TrendModule, MomentumModule,
-        MeanReversionModule, ValueModule, QualityModule, EventDrivenModule,
-    )
-
-    class TrendModuleWF(TrendModule):
-        DEFAULTS = {**TrendModule.DEFAULTS, 'sma_short': 20, 'sma_long': 60}
-
-    module_classes_wf = {
-        'trend':          TrendModuleWF,
-        'momentum':       MomentumModule,
-        'mean_reversion': MeanReversionModule,
-        'value':          ValueModule,
-        'quality':        QualityModule,
-        'event_driven':   EventDrivenModule,
-    }
-
+    # Fase 4 estesa: data lake da 2023-01 → abbiamo abbastanza storia per
+    # ripristinare warmup_bars=200 (default strategy) e usare DEFAULT_MODULES
+    # (TrendModule con SMA(200)). Niente più TrendModuleWF.
     fixed_params = {
         'max_positions': args.max_positions,
         'per_ticker_cap': args.per_ticker_cap,
-        # warmup_bars ridotto a 60 per fit nel data lake disponibile (parte
-        # da 2024-05-08, ~3 mesi prima del primo IS_start standard).
         'warmup_bars': args.warmup_bars,
         'sizing_method': 'vol_target',
         'min_position_pct': 0.005,
@@ -403,8 +390,6 @@ def main():
         'target_risk_pct': 0.01,
         'regime_mode': 'off',
         'vix_feed_name': None,
-        # WF-specific: usa moduli con SMA short per evitare IndexError su OOS corti
-        'module_classes': module_classes_wf,
     }
 
     # ── Run WF ───────────────────────────────────────────────────────────

@@ -530,7 +530,7 @@ python -m pytest tests/ -v
 | `unsupported format character '('` | Help argparse contiene `%` non valido — fixed |
 | yfinance 429 / blocked | Lancia da casa (no Vercel/Actions IP); `--sleep 1.0` aumenta delay |
 
-## Fase 4 — Walk-Forward + parameter stability (✓ completata)
+## Fase 4 — Walk-Forward + parameter stability (✓ completata, data lake esteso)
 
 Framework di validazione out-of-sample con rolling window. **Non cerca il
 parametro 'migliore in assoluto'**: misura se il sistema è stabile OOS e se i
@@ -538,30 +538,34 @@ parametri ottimali ricorrono coerentemente nei fold.
 
 ### Schema rolling window
 
-Dataset disponibile: 2024-08-01 → 2026-05-22 (~22 mesi reali).
+**Data lake esteso**: 2023-01-01 → 2026-05-22 (~41 mesi reali, ~860 bar/ticker).
 
 - **IS = 12 mesi** (training/optimization)
 - **OOS = 3 mesi** (validazione)
 - **Step = 3 mesi** (rolling forward)
-- **Fold reali generati = 3** (l'ultimo richiederebbe OOS oltre 2026-05)
+- **Fold reali generati = 5** (Fold 5 OOS chiude esattamente il 2026-05-22)
+- **Pre-roll**: 2023-01-02 → 2024-02-22 (~298 business days) per soddisfare il
+  warmup totale di 250 bar (200 minperiod SMA200 + 50 warmup_bars espliciti).
 
 | Fold | IS                          | OOS                         |
 | ---- | --------------------------- | --------------------------- |
-| F1   | 2024-08-01 → 2025-08-01     | 2025-08-01 → 2025-11-01     |
-| F2   | 2024-11-01 → 2025-11-01     | 2025-11-01 → 2026-02-01     |
-| F3   | 2025-02-01 → 2026-02-01     | 2026-02-01 → 2026-05-01     |
+| F1   | 2024-02-22 → 2025-02-22     | 2025-02-22 → 2025-05-22     |
+| F2   | 2024-05-22 → 2025-05-22     | 2025-05-22 → 2025-08-22     |
+| F3   | 2024-08-22 → 2025-08-22     | 2025-08-22 → 2025-11-22     |
+| F4   | 2024-11-22 → 2025-11-22     | 2025-11-22 → 2026-02-22     |
+| F5   | 2025-02-22 → 2026-02-22     | 2026-02-22 → 2026-05-22     |
 
 ### Griglia parametri (72 combinazioni)
 
 | Parametro             | Valori                |
 | --------------------- | --------------------- |
-| `threshold`           | 0.10, 0.15, 0.25      |
+| `threshold`           | 0.15, 0.20, 0.25      |
 | `min_concordant`      | 2, 3                  |
-| `target_risk_pct`     | 0.005, 0.008, 0.012   |
+| `target_risk_pct`     | 0.008, 0.010, 0.012   |
 | `max_sector_pct`      | None, 0.3             |
 | `max_portfolio_beta`  | None, 1.3             |
 
-Totale = 3 × 2 × 3 × 2 × 2 = 72 combo × 3 fold = 216 backtest IS + 3 OOS.
+Totale = 3 × 2 × 3 × 2 × 2 = 72 combo × 5 fold = 360 backtest IS + 5 OOS.
 
 ### Selezione & stabilità
 
@@ -570,45 +574,51 @@ Totale = 3 × 2 × 3 × 2 × 2 = 72 combo × 3 fold = 216 backtest IS + 3 OOS.
   alta (parametro più conservativo).
 - **Min trades per fold**: 5 (sotto, lo skippo per evitare risultati spuri).
 - **Overfitting flag**: OOS_Sharpe < 0.3 × IS_Sharpe (solo se IS > 0).
-- **Parametro 'stabile'**: stesso valore vincente in ≥3/3 fold.
+- **Parametro 'stabile'**: stesso valore vincente in ≥3/5 fold.
 
-### Risultati Full Run (72 combo)
+### Risultati Full Run (72 combo × 5 fold)
 
-| Fold | IS Sharpe | OOS Sharpe | Degradation | OOS Trades | OOS DD | Flag    |
-| ---- | --------- | ---------- | ----------- | ---------- | ------ | ------- |
-| F1   | 2.576     | 0.000      | 0.00        | 4          | 0.86%  | ⚠ OVF  |
-| F2   | 1.000     | 1.599      | 1.60        | 2          | 1.00%  | ok      |
-| F3   | 1.304     | 1.000      | 0.77        | 10         | 1.76%  | ok      |
+| Fold | IS Sharpe | OOS Sharpe | Degradation | IS Trades | OOS Trades | OOS DD  | Flag |
+| ---- | --------- | ---------- | ----------- | --------- | ---------- | ------- | ---- |
+| F1   | 1.011     | 1.000      | 0.99        | 12        | 12         | 17.86%  | ok   |
+| F2   | 1.414     | 1.000      | 0.71        | 10        | 10         | 3.65%   | ok   |
+| F3   | 1.321     | 1.000      | 0.76        | 10        | 10         | 4.98%   | ok   |
+| F4   | 1.112     | 1.399      | 1.26        | 10        | 7          | 3.99%   | ok   |
+| F5   | 1.024     | 1.000      | 0.98        | 17        | 11         | 12.50%  | ok   |
 
 **Aggregate stability**:
-- IS Sharpe medio: **1.627**
-- OOS Sharpe medio: **0.866**
-- Degradation ratio medio: **0.79** (> 0.7 = molto stabile)
-- Overfitting count: **1/3 fold**
+- IS Sharpe medio: **1.176**
+- OOS Sharpe medio: **1.080**
+- Degradation ratio medio: **0.94** (>> 0.7 = molto stabile)
+- Overfitting count: **0/5 fold**
 
-**Parametri stabili** (3/3 fold):
-- `threshold = 0.25`
+**Parametri stabili** (5/5 fold):
 - `target_risk_pct = 0.008`
 - `max_sector_pct = None`
 - `max_portfolio_beta = None`
-- `min_concordant`: 3 in 2/3 fold (quasi stabile)
+
+**Parametri stabili** (3/5 fold):
+- `threshold = 0.25`
+- `min_concordant = 3`
 
 ### Esempi CLI
 
 ```bash
-# Smoke run (8 combo, ~2 min)
+# Smoke run (8 combo, ~1 min)
 python -m engine.wf_runner --universe portfolio \
-    --from 2024-08-01 --to 2026-05-22 \
+    --from 2024-02-22 --to 2026-05-22 \
     --grid smoke \
-    --output-csv wf_smoke_results.csv \
-    --stability-json wf_smoke_stability.json
+    --warmup-bars 50 \
+    --output-csv wf_smoke_v3_results.csv \
+    --stability-json wf_smoke_v3_stability.json
 
-# Full run (72 combo, ~20 min)
+# Full run (72 combo, ~45 min)
 python -m engine.wf_runner --universe portfolio \
-    --from 2024-08-01 --to 2026-05-22 \
+    --from 2024-02-22 --to 2026-05-22 \
     --grid full \
-    --output-csv wf_full_results.csv \
-    --stability-json wf_full_stability.json
+    --warmup-bars 50 \
+    --output-csv wf_full_v3_results.csv \
+    --stability-json wf_full_v3_stability.json
 
 # Custom schema (es. 18m IS / 6m OOS / 6m step)
 python -m engine.wf_runner --universe portfolio \
@@ -618,13 +628,20 @@ python -m engine.wf_runner --universe portfolio \
 
 ### Note implementative
 
-- **TrendModuleWF**: per i fold OOS di 3 mesi (~63 bar), il `TrendModule`
-  default con `sma_long=200` causa `IndexError` (basicops). Il WF runner usa
-  un override `TrendModuleWF` con `sma_short=20, sma_long=60` (subclass
-  inline in `wf_runner.main`).
-- **Warmup**: `warmup_calendar_days=120` arretra il feed `fromdate` per
-  alimentare gli indicatori PRIMA della finestra di valutazione.
-  `warmup_bars=60` ridotto rispetto al default 200 della strategy.
+- **Data lake esteso al 2023-01-01**: download tramite
+  `quant_v3/ingestion/initial_download.py` con `START_DATE="2023-01-01"`.
+  Copertura validata: 35/35 portfolio + 15/16 benchmark (^V2TX/VSTOXX
+  non disponibile su yfinance), ~860 bar per ticker.
+- **Warmup totale = 250 bar** = `minperiod` (200, SMA200 automatica da
+  backtrader via `prenext`) + `warmup_bars=50` (skip esplicito dopo che
+  gli indicatori sono caldi). Pre-roll richiesto: ≥ 250 business days dal
+  feed start al fold IS start.
+- **`warmup_calendar_days=365`**: il WF runner arretra il `fromdate` del
+  feed di 1 anno calendario rispetto al fold IS start, garantendo
+  ampiamente i 250 bar di warmup richiesti.
+- **DEFAULT_MODULES**: il WF runner ora usa direttamente i moduli
+  production (no più `TrendModuleWF` con SMA short). Con il data lake
+  esteso, l'SMA200 si scalda correttamente prima del Fold 1.
 - **TradeAnalyzer**: usiamo `total.total` (open + closed) e NON `total.closed`,
   perché le posizioni IS spesso restano aperte fino al fold end.
 - **Loop esplicito** sui parametri (no `cerebro.optstrategy`): permette
@@ -635,10 +652,12 @@ python -m engine.wf_runner --universe portfolio \
 - `engine/walkforward.py` (478 righe): `Fold`, `FoldResult`, `RunMetrics`,
   `generate_folds`, `expand_grid`, `select_best_params`, `aggregate_stability`,
   `run_walkforward`.
-- `engine/wf_runner.py` (480 righe): CLI runner + `make_backtest_runner` factory
-  + `TrendModuleWF`.
+- `engine/wf_runner.py` (470 righe): CLI runner + `make_backtest_runner`
+  factory. Default `warmup_bars=50`, `warmup_calendar_days=365`.
+- `ingestion/initial_download.py`: data lake downloader (`START_DATE="2023-01-01"`).
 - `tests/test_walkforward.py` (37 test): tutti i moduli del framework.
-- Test suite totale: **200 test verdi** in 4.3s.
+- Test suite totale: **200 test verdi**.
+- Output: `wf_full_v3_results.csv` (360 righe) + `wf_full_v3_stability.json`.
 
 ## Roadmap fasi successive
 

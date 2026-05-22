@@ -64,9 +64,10 @@ for d in (OHLCV_DIR, BENCH_DIR, CORP_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 # === Config ===
-HISTORY_MONTHS = 24
+# Fase 4 (estesa): da 2023-01-01 per avere ~40 mesi (warmup 200 bar + 7-8 fold).
+START_DATE = "2023-01-01"
 END_DATE = "2026-05-22"
-START_DATE = (datetime.strptime(END_DATE, "%Y-%m-%d") - timedelta(days=HISTORY_MONTHS * 31)).strftime("%Y-%m-%d")
+HISTORY_MONTHS = 40  # info only
 BATCH_SIZE = 1  # download seriale per evitare rate limit Yahoo
 SLEEP_SEC = 0.5  # tra un download e l'altro
 SLEEP_AFTER_BATCH = 2.0
