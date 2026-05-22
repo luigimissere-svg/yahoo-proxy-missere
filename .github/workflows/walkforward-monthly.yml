@@ -85,6 +85,25 @@ jobs:
           print(f\"Overfitting: {a['overfitting_count']}/{a['n_folds']}\")
           "
 
+      - name: Generate Discovery snapshot (universo allargato)
+        working-directory: quant_v3
+        run: |
+          # Discovery indipendente dal WF: chiama yahoo-proxy quote in batch
+          # per i ~1000 titoli dell'universo extended e produce ranking.
+          python scripts/generate_discovery_snapshot.py --top-n 30 --batch-size 50 || \
+            echo "::warning::Discovery snapshot non riuscito (continuo lo stesso)"
+          if [ -f discovery_snapshot.json ]; then
+            python -c "
+          import json
+          d = json.load(open('discovery_snapshot.json'))
+          m = d['_meta']
+          print(f\"Discovery: {m['scored_size']} scored / {m['candidates_size']} candidati\")
+          for region in ['US','EU','IT']:
+              r = d['by_region'][region]
+              print(f\"  {region}: buy={len(r['buy'])} sell={len(r['sell'])} watch={len(r['watch'])}\")
+          "
+          fi
+
       - name: Detect parameter drift
         id: drift
         working-directory: quant_v3
@@ -118,7 +137,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add quant_v3/wf_full_v3_results.csv \
                   quant_v3/wf_full_v3_stability.json \
-                  quant_v3/walkforward_snapshot.json
+                  quant_v3/walkforward_snapshot.json \
+                  quant_v3/discovery_snapshot.json
           if git diff --staged --quiet; then
             echo "Nessuna modifica ai risultati WF"
           else
