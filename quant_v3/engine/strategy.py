@@ -111,8 +111,17 @@ class PatrimonioStrategy(bt.Strategy):
     def _open_positions_count(self) -> int:
         return sum(1 for d in self.datas if self.getposition(d).size > 0)
 
+    def _pending_buys_count(self) -> int:
+        """Conta ordini BUY pending (non ancora eseguiti)."""
+        try:
+            return sum(1 for o in self.broker.get_orders_open() if o.isbuy())
+        except Exception:
+            return 0
+
     def _can_open_new(self) -> bool:
-        return self._open_positions_count() < self.p.max_positions
+        # Include posizioni aperte + ordini buy pending nello stesso bar
+        total = self._open_positions_count() + self._pending_buys_count()
+        return total < self.p.max_positions
 
     def _size_for(self, data) -> int:
         """Sizing equal-weight rispettando per_ticker_cap."""
@@ -135,6 +144,8 @@ class PatrimonioStrategy(bt.Strategy):
         if self.bar_count < self.p.warmup_bars:
             return
 
+        # PASS 1: calcola score, gestisci EXIT, raccogli candidati BUY
+        candidates = []  # (score, data, ticker, diag)
         for d in self.datas:
             tk = self._ticker(d)
             pos = self.getposition(d)
@@ -144,7 +155,7 @@ class PatrimonioStrategy(bt.Strategy):
             if pos.size > 0 and tk in self.entry_price:
                 self.peak_price[tk] = max(self.peak_price.get(tk, 0.0), d.close[0])
 
-            # ── EXIT logic (priorità su entry) ────────────────────────
+            # EXIT logic (priorità)
             if pos.size > 0:
                 exit_reason = self._check_exit(d, tk, score)
                 if exit_reason:
@@ -152,19 +163,26 @@ class PatrimonioStrategy(bt.Strategy):
                     if self.p.verbose:
                         self.log(f"EXIT {tk} reason={exit_reason} composite={score:.3f}")
                     self._record_trade(tk, d, 'EXIT', score, diag, exit_reason)
-                    continue
+                continue
 
-            # ── ENTRY logic ───────────────────────────────────────────
-            if pos.size == 0 and score > 0 and self._can_open_new():
-                size = self._size_for(d)
-                if size > 0:
-                    self.buy(data=d, size=size)
-                    self.entry_price[tk] = d.close[0]
-                    self.entry_bar[tk] = self.bar_count
-                    self.peak_price[tk] = d.close[0]
-                    if self.p.verbose:
-                        self.log(f"BUY {tk} size={size} px={d.close[0]:.2f} composite={score:.3f}")
-                    self._record_trade(tk, d, 'BUY', score, diag, 'composite_signal')
+            # Candidato BUY
+            if pos.size == 0 and score > 0:
+                candidates.append((score, d, tk, diag))
+
+        # PASS 2: ranking per score, top-N rispettando max_positions
+        candidates.sort(key=lambda x: -x[0])
+        slots_available = self.p.max_positions - self._open_positions_count()
+        for score, d, tk, diag in candidates[:slots_available]:
+            size = self._size_for(d)
+            if size > 0:
+                self.buy(data=d, size=size)
+                self.entry_price[tk] = d.close[0]
+                self.entry_bar[tk] = self.bar_count
+                self.peak_price[tk] = d.close[0]
+                if self.p.verbose:
+                    self.log(f"BUY {tk} size={size} px={d.close[0]:.2f} composite={score:.3f}")
+                self._record_trade(tk, d, 'BUY', score, diag, 'composite_signal')
+
 
     # ── Exit logic ───────────────────────────────────────────────────────
 
