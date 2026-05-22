@@ -72,6 +72,12 @@ def parse_args():
                    help="Stima vol: 'atr' (default) o 'realized' (std dei returns)")
     p.add_argument('--vol-lookback', type=int, default=14,
                    help="Periodo ATR o lookback realized vol (default 14)")
+    # ── Regime-aware exit (Fase 3.2) ──
+    p.add_argument('--regime-mode', choices=['off', 'deleveraging', 'full'], default='off',
+                   help="Regime VIX: 'off' (legacy), 'deleveraging' (riduce size), "
+                        "'full' (size + trailing ATR adattivo). Default 'off'")
+    p.add_argument('--vix-ticker', type=str, default='^VIX',
+                   help="Simbolo VIX nel data lake (default ^VIX). Vuoto = nessun VIX")
     # ── Pre-screening fundamentals (Strategia B) ──
     p.add_argument('--no-quality-filter', dest='quality_filter_enabled',
                    action='store_false', default=True,
@@ -127,6 +133,32 @@ def run_backtest(args):
             print(f"  skip {t}: {e}")
     print(f"Feeds added: {n_added}")
 
+    # ── Feed VIX (non-tradable) per regime detection ─────────────────────
+    vix_feed_name = args.vix_ticker if (args.vix_ticker and args.regime_mode != 'off') else None
+    if vix_feed_name:
+        try:
+            vix_df = loader.load_benchmark(vix_feed_name)
+            # Filtra range coerente con i feed di trading
+            if args.fromdate:
+                vix_df = vix_df.loc[args.fromdate:]
+            if args.todate:
+                vix_df = vix_df.loc[:args.todate]
+            # Crea feed pandas standard (no eventi/dividendi necessari)
+            import pandas as _pd
+            vix_bt = bt.feeds.PandasData(
+                dataname=vix_df[['open', 'high', 'low', 'close', 'volume']].asfreq('B').ffill(limit=5).dropna(subset=['close'])
+            )
+            cerebro.adddata(vix_bt, name=vix_feed_name)
+            print(f"VIX feed loaded: {vix_feed_name}  range={vix_df.index.min().date()} → {vix_df.index.max().date()}")
+        except FileNotFoundError:
+            print(f"WARN: VIX feed '{vix_feed_name}' non trovato nel data lake → regime-mode forzato a 'off'")
+            args.regime_mode = 'off'
+            vix_feed_name = None
+        except Exception as e:
+            print(f"WARN: errore caricamento VIX feed: {e} → regime-mode forzato a 'off'")
+            args.regime_mode = 'off'
+            vix_feed_name = None
+
     if n_added == 0:
         print("ERROR: nessun feed caricato")
         return
@@ -152,6 +184,8 @@ def run_backtest(args):
         vol_floor_pct=args.vol_floor,
         vol_proxy=args.vol_proxy,
         vol_lookback=args.vol_lookback,
+        regime_mode=args.regime_mode,
+        vix_feed_name=vix_feed_name,
     )
 
     # ── Analyzers ─────────────────────────────────────────────────────────
@@ -179,6 +213,10 @@ def run_backtest(args):
               f"min_position={args.min_position:.2%} vol_floor={args.vol_floor:.2%})")
     else:
         print(f"Sizing: equal_weight (cap={args.per_ticker_cap:.2%} per ticker)")
+    if args.regime_mode != 'off':
+        print(f"Regime: mode={args.regime_mode}  VIX feed={vix_feed_name}")
+    else:
+        print("Regime: off (legacy)")
     print()
 
     res = cerebro.run()

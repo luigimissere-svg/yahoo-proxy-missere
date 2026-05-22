@@ -45,9 +45,10 @@ quant_v3/
 │       ├── value.py               # P/E + P/B + FCF yield
 │       ├── quality.py             # ROE + margin + D/E
 │       └── event_driven.py        # PEAD post-earnings drift
-├── tests/                          # pytest suite (68 test, < 5s)
-│   └── test_sizing.py             # ✅ Fase 3.1 (vol_target + edge cases)
-├── risk/                          # [F3.2+] Exit dinamica + sector caps (TODO)
+├── tests/                          # pytest suite (107 test, < 5s)
+│   ├── test_sizing.py             # ✅ Fase 3.1 (vol_target + edge cases)
+│   └── test_regime.py             # ✅ Fase 3.2 (regime VIX + deleveraging + trailing)
+├── risk/                          # [F3.3+] Sector caps + beta cap (TODO)
 ├── optimization/                  # [F4] Walk-forward + optstrategy (TODO)
 └── reports/                       # Report PDF di backtest
 ```
@@ -228,6 +229,56 @@ ottimizzeremo `target_risk × cap` insieme. Per testare il vol-target puro:
 python -m engine.runner --target-risk 0.005 --per-ticker-cap 0.20
 ```
 
+### Fase 3.2 — Exit Dinamica Regime-Aware
+
+Usa il livello del **VIX** come proxy del regime di mercato per (a) ridurre la size
+dei nuovi BUY in regimi alti (deleveraging) e (b) stringere il trailing stop ATR
+in volatilità elevata (full mode).
+
+**Regimi VIX** (default, `engine/regime.py`):
+
+| Regime | VIX | Size factor | Trailing ATR mult |
+|---|---|---|---|
+| LOW | < 15 | 1.0 | 2.5× |
+| NORMAL | 15–20 | 1.0 | 2.5× |
+| ELEVATED | 20–25 | 0.7 | 2.0× |
+| HIGH | 25–35 | 0.4 | 1.5× |
+| EXTREME | ≥ 35 | 0.0 (no BUY) | 1.0× |
+
+**Modalità CLI** (`--regime-mode`):
+- `off` (default, retrocompatibile): nessun deleveraging, nessun trailing ATR.
+- `deleveraging`: applica solo la riduzione di size sui NEW BUY. **Non tocca** le
+  posizioni esistenti.
+- `full`: deleveraging + trailing stop ATR-based, con `mult` regime-aware. È più
+  conservativo ma sensibile alla calibrazione del mult per regime (Fase 4).
+
+**Backtest 2024-08 → 2026-05 (portfolio Missere, 35 ticker)**:
+
+| Mode | P&L | Sharpe | Max DD | Trades | Note |
+|---|---|---|---|---|---|
+| off (baseline) | +14.83% | 1.355 | 4.52% | 10 | composite exit |
+| deleveraging | +12.48% | 1.283 | **3.56%** | 10 | -16% P&L, **DD -21%** |
+| full | +1.55% | 0.329 | 3.79% | 14 | trailing ATR 1.5× troppo stretto, 9 stop-outs |
+
+**Lettura**: il `deleveraging` realizza il classico trade-off return-per-risk
+(meno return, meno drawdown). Il `full` mode richiede calibrazione dei mult ATR
+per evitare "noise stops": il tuning verrà fatto out-of-sample in Fase 4.
+
+**Override pythonico** (per walk-forward o custom backtest):
+```python
+from engine.strategy import PatrimonioStrategy
+cerebro.addstrategy(
+    PatrimonioStrategy,
+    regime_mode='deleveraging',
+    vix_feed_name='^VIX',
+    regime_thresholds={'LOW': 12.0, 'NORMAL': 18.0, 'ELEVATED': 23.0, 'HIGH': 30.0, 'EXTREME': float('inf')},
+    deleveraging_factors={'LOW': 1.0, 'NORMAL': 1.0, 'ELEVATED': 0.5, 'HIGH': 0.25, 'EXTREME': 0.0},
+)
+```
+
+Il `RegimeDetector` è **stateless** (una sola `detect(vix)` per bar) e iniettabile
+via parametri, quindi pronto per ottimizzazione walk-forward di soglie e fattori.
+
 ### Setup engine
 
 ```bash
@@ -277,6 +328,18 @@ python -m engine.runner --universe portfolio --from 2024-08-01 \
     --threshold 0.05 --min-concordant 1 --verbose
 ```
 
+**Backtest con regime VIX deleveraging (Fase 3.2)**:
+```bash
+python -m engine.runner --universe portfolio --from 2024-08-01 \
+    --regime-mode deleveraging --verbose
+```
+
+**Backtest full regime-aware (deleveraging + trailing ATR adattivo)**:
+```bash
+python -m engine.runner --universe portfolio --from 2024-08-01 \
+    --regime-mode full --verbose
+```
+
 ### Parametri runner CLI
 
 | Flag | Default | Descrizione |
@@ -308,6 +371,8 @@ python -m engine.runner --universe portfolio --from 2024-08-01 \
 | `--vol-floor` | `0.005` | Vol floor (% prezzo) per evitare sizing esplosivo |
 | `--vol-proxy` | `atr` | `atr` o `realized` (std returns) |
 | `--vol-lookback` | `14` | Periodo ATR/realized vol |
+| `--regime-mode` | `off` | `off`/`deleveraging`/`full` (VIX-based exit) |
+| `--vix-ticker` | `^VIX` | Simbolo VIX nel data lake (vuoto = nessuno) |
 
 ### Output runner
 
@@ -337,12 +402,13 @@ cd quant_v3
 python -m pytest tests/ -v
 ```
 
-68 test, < 5s. Coverage:
+107 test, < 5s. Coverage:
 - `test_data_loader.py` (11) — lake structure + feed building
 - `test_signals.py` (15) — composite blending + gating + Strategia B (pesi 0, pre-screening)
 - `test_modules.py` (16) — 6 moduli alpha + bounds + monotonia
 - `test_strategy_smoke.py` (3) — e2e cerebro run + quality_filter unit
 - `test_sizing.py` (21) — PositionSizer equal vs vol_target, caps, edge cases
+- `test_regime.py` (39) — RegimeDetector VIX (classify, deleveraging, trailing, mode bypass)
 
 ### Troubleshooting
 

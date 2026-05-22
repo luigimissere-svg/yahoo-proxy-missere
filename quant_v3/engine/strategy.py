@@ -30,6 +30,12 @@ import backtrader as bt
 from engine.signals import CompositeSignal, DEFAULT_WEIGHTS
 from engine.modules import DEFAULT_MODULES
 from engine.sizing import PositionSizer
+from engine.regime import (
+    RegimeDetector,
+    DEFAULT_VIX_THRESHOLDS,
+    DEFAULT_DELEVERAGING,
+    DEFAULT_TRAILING_ATR_MULT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +83,14 @@ class PatrimonioStrategy(bt.Strategy):
         ('vol_floor_pct', 0.005),          # vol floor = 0.5% prezzo
         ('vol_proxy', 'atr'),              # 'atr' | 'realized'
         ('vol_lookback', 14),              # ATR period (o realized vol window)
+        # ── Regime-aware (Fase 3.2) ──
+        # 'off' (default, retrocompatibile)  |  'deleveraging' (solo size)
+        # 'full' (size + trailing ATR adattivo)
+        ('regime_mode', 'off'),
+        ('vix_feed_name', '^VIX'),         # nome del feed VIX in cerebro.adddata (None se non caricato)
+        ('regime_thresholds', None),       # override soglie VIX (dict regime→threshold)
+        ('deleveraging_factors', None),    # override fattori size (dict regime→factor)
+        ('trailing_atr_mults', None),      # override mult ATR trailing (dict regime→mult)
     )
 
     # ── Init ─────────────────────────────────────────────────────────────
@@ -103,11 +117,35 @@ class PatrimonioStrategy(bt.Strategy):
             vol_proxy=self.p.vol_proxy,
         )
 
-        # Istanzio i moduli per OGNI feed (data) → dict[data] = dict[mod_name → AlphaModule]
+        # Regime detector (Fase 3.2)
+        self._regime_detector = RegimeDetector(
+            mode=self.p.regime_mode,
+            thresholds=self.p.regime_thresholds or dict(DEFAULT_VIX_THRESHOLDS),
+            deleveraging=self.p.deleveraging_factors or dict(DEFAULT_DELEVERAGING),
+            trailing_atr_mult=self.p.trailing_atr_mults or dict(DEFAULT_TRAILING_ATR_MULT),
+        )
+        # Cache: regime corrente (aggiornato a ogni bar)
+        self._regime_state = None
+        # Counter regime exposure (giorni per regime) per diagnostica
+        self._regime_days = {'LOW': 0, 'NORMAL': 0, 'ELEVATED': 0, 'HIGH': 0, 'EXTREME': 0}
+        # Counter exit reasons
+        self._exit_reasons_count: Dict[str, int] = {}
+
+        # Identifica feed VIX (non-tradable) — viene escluso dal loop alpha
+        self._vix_feed = None
+        if self.p.vix_feed_name:
+            for d in self.datas:
+                if (d._name or '') == self.p.vix_feed_name:
+                    self._vix_feed = d
+                    break
+
+        # Istanzio i moduli per OGNI feed tradable (esclude VIX) → dict[data] = dict[mod_name → AlphaModule]
         self._modules: Dict[bt.feeds.PandasData, Dict[str, object]] = {}
-        # ATR(period) indicator per ogni feed — usato per vol_target sizing
+        # ATR(period) indicator per ogni feed — usato per vol_target sizing e trailing regime-aware
         self._atr: Dict[bt.feeds.PandasData, bt.indicators.ATR] = {}
         for d in self.datas:
+            if d is self._vix_feed:
+                continue  # VIX non è tradable
             mods = {}
             for mod_name, mod_cls in module_classes.items():
                 m = mod_cls()
@@ -231,12 +269,38 @@ class PatrimonioStrategy(bt.Strategy):
         return None
 
     def _size_for(self, data) -> int:
-        """Position sizing tramite PositionSizer (Fase 3.1)."""
+        """Position sizing tramite PositionSizer (Fase 3.1) con deleveraging regime-aware (Fase 3.2)."""
         nav = self.broker.get_value()
         cash = self.broker.get_cash()
         price = float(data.close[0])
         vol_eur = self._vol_eur(data) if self.p.sizing_method == 'vol_target' else None
-        return self._position_sizer.size(nav=nav, cash=cash, price=price, vol_eur=vol_eur)
+        # Deleveraging regime-aware: riduce target_risk_pct via fattore moltiplicativo.
+        # Se factor == 0 (regime EXTREME) ritorna 0 → no new BUY.
+        delev = self._regime_state.deleveraging_factor if self._regime_state else 1.0
+        if delev <= 0.0:
+            return 0
+        if delev >= 1.0 or self.p.sizing_method == 'equal':
+            # Nessuna riduzione (regime LOW/NORMAL) o equal sizing (delev non si applica)
+            return self._position_sizer.size(nav=nav, cash=cash, price=price, vol_eur=vol_eur)
+        # Riduco target_risk_pct nel sizer temporaneamente
+        original_trp = self._position_sizer.target_risk_pct
+        try:
+            self._position_sizer.target_risk_pct = original_trp * delev
+            return self._position_sizer.size(nav=nav, cash=cash, price=price, vol_eur=vol_eur)
+        finally:
+            self._position_sizer.target_risk_pct = original_trp
+
+    def _current_vix(self) -> Optional[float]:
+        """Legge VIX corrente dal feed (None se non disponibile o warmup)."""
+        if self._vix_feed is None:
+            return None
+        try:
+            v = float(self._vix_feed.close[0])
+            if not math.isfinite(v) or v <= 0:
+                return None
+            return v
+        except (IndexError, ValueError):
+            return None
 
     # ── Main loop ────────────────────────────────────────────────────────
 
@@ -247,9 +311,16 @@ class PatrimonioStrategy(bt.Strategy):
         if self.bar_count < self.p.warmup_bars:
             return
 
+        # Regime detection (1 sola lettura VIX per bar)
+        vix = self._current_vix()
+        self._regime_state = self._regime_detector.detect(vix)
+        self._regime_days[self._regime_state.name] = self._regime_days.get(self._regime_state.name, 0) + 1
+
         # PASS 1: calcola score, gestisci EXIT, raccogli candidati BUY
         candidates = []  # (score, data, ticker, diag)
         for d in self.datas:
+            if d is self._vix_feed:
+                continue  # skip VIX feed
             tk = self._ticker(d)
             pos = self.getposition(d)
             score, diag = self._composite_score(d)
@@ -268,8 +339,15 @@ class PatrimonioStrategy(bt.Strategy):
                     self._record_trade(tk, d, 'EXIT', score, diag, exit_reason)
                 continue
 
-            # Candidato BUY
+            # Candidato BUY (skip se regime blocca nuovi BUY)
             if pos.size == 0 and score > 0:
+                if self._regime_state.block_new_buys:
+                    if self.p.verbose:
+                        self.log(
+                            f"SKIP {tk} regime={self._regime_state.name} "
+                            f"vix={self._regime_state.vix} (no new buys)"
+                        )
+                    continue
                 # Pre-screening fundamentals (Strategia B)
                 if not self._passes_quality_filter(diag):
                     self.n_filtered_by_quality += 1
@@ -324,11 +402,26 @@ class PatrimonioStrategy(bt.Strategy):
             if px >= entry * (1.0 + self.p.take_profit):
                 return f'take_profit({self.p.take_profit:.2%})'
 
-        # 4. Trailing stop
+        # 4. Trailing stop %
         if self.p.trailing_pct is not None:
             peak = self.peak_price.get(ticker, entry)
             if px <= peak * (1.0 - self.p.trailing_pct):
                 return f'trailing({self.p.trailing_pct:.2%})'
+
+        # 5. Trailing stop ATR-based regime-aware (Fase 3.2, solo mode='full')
+        if self.p.regime_mode == 'full' and self._regime_state is not None:
+            atr_ind = self._atr.get(data)
+            if atr_ind is not None:
+                try:
+                    atr_val = float(atr_ind[0])
+                    mult = self._regime_state.trailing_atr_mult
+                    if math.isfinite(atr_val) and atr_val > 0 and mult > 0:
+                        peak = self.peak_price.get(ticker, entry)
+                        stop_level = peak - mult * atr_val
+                        if px <= stop_level:
+                            return f'trailing_atr({self._regime_state.name},{mult:.1f}x)'
+                except (IndexError, ValueError):
+                    pass
 
         return None
 
@@ -339,6 +432,8 @@ class PatrimonioStrategy(bt.Strategy):
         logger.info(f"[{dt}] {msg}")
 
     def _record_trade(self, ticker: str, data, action: str, score: float, diag: dict, reason: str):
+        if action == 'EXIT':
+            self._exit_reasons_count[reason] = self._exit_reasons_count.get(reason, 0) + 1
         self.trade_log.append({
             'date': data.datetime.date(0).isoformat(),
             'ticker': ticker,
@@ -348,6 +443,8 @@ class PatrimonioStrategy(bt.Strategy):
             'sign': diag.get('sign'),
             'n_concordant': diag.get('n_concordant'),
             'reason': reason,
+            'regime': self._regime_state.name if self._regime_state else None,
+            'vix': self._regime_state.vix if self._regime_state else None,
             'cash_after': float(self.broker.get_cash()),
             'portfolio_value': float(self.broker.get_value()),
         })
@@ -361,6 +458,21 @@ class PatrimonioStrategy(bt.Strategy):
             f"filtered_by_quality={self.n_filtered_by_quality}  "
             f"final_value={self.broker.get_value():,.2f}"
         )
+        # Diagnostica regime (solo se mode != 'off')
+        if self.p.regime_mode != 'off':
+            tot = sum(self._regime_days.values()) or 1
+            logger.info(
+                "Regime exposure: "
+                + "  ".join(
+                    f"{r}={n} ({n/tot*100:.1f}%)"
+                    for r, n in self._regime_days.items() if n > 0
+                )
+            )
+            if self._exit_reasons_count:
+                logger.info(
+                    "Exit reasons: "
+                    + "  ".join(f"{k}={v}" for k, v in self._exit_reasons_count.items())
+                )
 
     # ── Public API ───────────────────────────────────────────────────────
 
