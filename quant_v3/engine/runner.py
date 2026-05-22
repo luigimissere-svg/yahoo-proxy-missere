@@ -49,7 +49,7 @@ def parse_args():
                    help="Fine backtest (YYYY-MM-DD)")
     p.add_argument('--cash', type=float, default=100_000.0)
     p.add_argument('--commission', type=float, default=0.001,
-                   help="Commission % (es. 0.001 = 10bps)")
+                   help="Commission rate (es. 0.001 = 10bps)")
     p.add_argument('--threshold', type=float, default=0.20)
     p.add_argument('--min-concordant', type=int, default=3)
     p.add_argument('--max-positions', type=int, default=10)
