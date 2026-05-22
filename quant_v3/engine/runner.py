@@ -61,6 +61,10 @@ def parse_args():
     p.add_argument('--warmup-bars', type=int, default=200)
     p.add_argument('--log-trades', type=str, default=None,
                    help="Path CSV per dump trade log")
+    p.add_argument('--equity-csv', type=str, default=None,
+                   help="Path CSV per dump equity curve giornaliera")
+    p.add_argument('--quantstats-html', type=str, default=None,
+                   help="Path HTML per report QuantStats completo")
     p.add_argument('--data-root', type=str, default='data')
     p.add_argument('--verbose', action='store_true')
     return p.parse_args()
@@ -121,10 +125,18 @@ def run_backtest(args):
     )
 
     # ── Analyzers ─────────────────────────────────────────────────────────
-    cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.0)
+    cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.0,
+                        annualize=True, timeframe=bt.TimeFrame.Days)
+    cerebro.addanalyzer(bt.analyzers.SharpeRatio_A, _name='sharpe_a', riskfreerate=0.0)
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='dd')
     cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
+    cerebro.addanalyzer(bt.analyzers.SQN, _name='sqn')
+    cerebro.addanalyzer(bt.analyzers.TimeReturn, _name='timereturn',
+                        timeframe=bt.TimeFrame.Days)
+    cerebro.addanalyzer(bt.analyzers.Calmar, _name='calmar')
+    # NOTE: AnnualReturn richiede stats.broker observer (non sempre attivo);
+    # calcoliamo annual returns manualmente da timereturn (sotto).
 
     # ── Run ───────────────────────────────────────────────────────────────
     print(f"\nStart cash: {args.cash:,.2f}  commission: {args.commission*100:.2f}%")
@@ -143,26 +155,112 @@ def run_backtest(args):
     print(f"Final value:      {final_value:>15,.2f}")
     print(f"P&L:              {pnl:>+15,.2f}  ({ret_pct:+.2f}%)")
 
+    # Sharpe (annualizzato dal solo Sharpe analyzer with annualize=True)
     sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio')
+    sharpe_a = strat.analyzers.sharpe_a.get_analysis().get('sharperatio')
     if sharpe is not None:
-        print(f"Sharpe ratio:     {sharpe:>15.3f}")
+        print(f"Sharpe (annual):  {sharpe:>15.3f}")
+    if sharpe_a is not None and sharpe_a != sharpe:
+        print(f"Sharpe_A:         {sharpe_a:>15.3f}")
 
+    # Drawdown
     dd = strat.analyzers.dd.get_analysis()
     print(f"Max drawdown:     {dd.max.drawdown:>15.2f}%  (length={dd.max.len} bars)")
 
+    # Calmar (return / |max DD|)
+    calmar = strat.analyzers.calmar.get_analysis()
+    calmar_val = None
+    if calmar:
+        # Calmar è OrderedDict di valori per periodo; prendiamo l'ultimo
+        try:
+            calmar_val = list(calmar.values())[-1]
+        except Exception:
+            pass
+    if calmar_val is not None and calmar_val == calmar_val:  # not NaN
+        print(f"Calmar ratio:     {calmar_val:>15.3f}")
+
+    # SQN
+    sqn = strat.analyzers.sqn.get_analysis().get('sqn')
+    if sqn is not None:
+        print(f"SQN:              {sqn:>15.3f}  (>1.6 = decente, >2 = buono, >3 = ottimo)")
+
+    # Trade analyzer dettagliato
     trades = strat.analyzers.trades.get_analysis()
     n_total = trades.get('total', {}).get('total', 0)
-    won = trades.get('won', {}).get('total', 0)
-    lost = trades.get('lost', {}).get('total', 0)
+    won = trades.get('won', {}).get('total', 0) or 0
+    lost = trades.get('lost', {}).get('total', 0) or 0
     if n_total:
         wr = won / n_total * 100
         print(f"Trades:           {n_total} (won={won}  lost={lost}  win rate={wr:.1f}%)")
+        # Profit factor & expectancy
+        pnl_won = trades.get('won', {}).get('pnl', {}).get('total', 0) or 0
+        pnl_lost = abs(trades.get('lost', {}).get('pnl', {}).get('total', 0) or 0)
+        if pnl_lost > 0:
+            pf = pnl_won / pnl_lost
+            print(f"Profit factor:    {pf:>15.3f}  (>1 profittevole, >2 robusto)")
+        avg_won = trades.get('won', {}).get('pnl', {}).get('average', 0) or 0
+        avg_lost = trades.get('lost', {}).get('pnl', {}).get('average', 0) or 0
+        if won and lost:
+            expectancy = (won/n_total) * avg_won + (lost/n_total) * avg_lost
+            print(f"Expectancy/trade: {expectancy:>+15,.2f} EUR")
+        avg_len_won = trades.get('len', {}).get('won', {}).get('average', 0) or 0
+        avg_len_lost = trades.get('len', {}).get('lost', {}).get('average', 0) or 0
+        if avg_len_won or avg_len_lost:
+            print(f"Avg holding bars: won={avg_len_won:.1f}  lost={avg_len_lost:.1f}")
     else:
         print("Trades:           0 (nessun trade chiuso)")
+
+    # Annual returns calcolati manualmente da TimeReturn daily
+    tr_daily = strat.analyzers.timereturn.get_analysis()
+    if tr_daily:
+        from collections import OrderedDict
+        annual = OrderedDict()
+        for dt, r in sorted(tr_daily.items()):
+            year = dt.year if hasattr(dt, 'year') else int(str(dt)[:4])
+            if year not in annual:
+                annual[year] = 1.0
+            annual[year] *= (1.0 + r)
+        if annual:
+            print("\nAnnual returns:")
+            for year, mult in annual.items():
+                print(f"  {year}: {(mult - 1.0) * 100:>+7.2f}%")
+
+    # Equity curve dump
+    if args.equity_csv:
+        import csv as _csv
+        tr = strat.analyzers.timereturn.get_analysis()
+        equity = args.cash
+        with open(args.equity_csv, 'w', newline='', encoding='utf-8') as f:
+            w = _csv.writer(f)
+            w.writerow(['date', 'daily_return', 'equity'])
+            for dt, r in sorted(tr.items()):
+                equity *= (1.0 + r)
+                w.writerow([dt.isoformat() if hasattr(dt, 'isoformat') else str(dt),
+                            f"{r:.6f}", f"{equity:.2f}"])
+        print(f"\nEquity curve → {args.equity_csv}")
 
     if args.log_trades:
         strat.dump_log(args.log_trades)
         print(f"\nTrade log → {args.log_trades}")
+
+    # QuantStats HTML report opzionale
+    if args.quantstats_html:
+        try:
+            import quantstats as qs
+            import pandas as pd
+            tr = strat.analyzers.timereturn.get_analysis()
+            if tr:
+                series = pd.Series(
+                    {pd.Timestamp(dt): float(r) for dt, r in tr.items()}
+                ).sort_index()
+                qs.reports.html(series, output=args.quantstats_html, title='Patrimonio v3 backtest')
+                print(f"QuantStats HTML  → {args.quantstats_html}")
+            else:
+                print("QuantStats: timereturn vuoto, skip HTML")
+        except ImportError:
+            print("QuantStats non installato (pip install quantstats)")
+        except Exception as e:
+            print(f"QuantStats HTML error: {e}")
 
     print("=" * 60)
 
