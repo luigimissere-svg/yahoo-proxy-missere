@@ -1,0 +1,158 @@
+name: walkforward-monthly
+
+# Re-validation mensile del walk-forward Fase 4.
+# Esegue il primo del mese, ricalcola 5 fold × 72 combo, genera
+# wf_full_v3_*.{csv,json} + walkforward_snapshot.json, committa.
+#
+# Il backend /api/walkforward legge lo snapshot fresco dal repo
+# (branch v3-quant-framework) tramite raw GitHub CDN.
+
+on:
+  schedule:
+    # Primo del mese alle 02:00 UTC (= 03:00 CET / 04:00 CEST)
+    - cron: '0 2 1 * *'
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: "Data inizio fold IS (formato YYYY-MM-DD)"
+        required: false
+        default: "2024-02-22"
+      to_date:
+        description: "Data fine OOS (formato YYYY-MM-DD, default oggi)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: walkforward-monthly
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v3-quant-framework
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r quant_v3/ingestion/requirements.txt
+          pip install backtrader pandas numpy scipy python-dateutil
+
+      - name: Refresh data lake (incremental)
+        working-directory: quant_v3
+        run: |
+          python ingestion/refresh_lake.py || echo "::warning::refresh non riuscito, uso dati esistenti"
+
+      - name: Run walk-forward (full grid)
+        working-directory: quant_v3
+        env:
+          WF_FROM: ${{ github.event.inputs.from_date || '2024-02-22' }}
+          WF_TO: ${{ github.event.inputs.to_date }}
+        run: |
+          TO_DATE="${WF_TO:-$(date -u +%Y-%m-%d)}"
+          echo "Walk-forward: from=$WF_FROM to=$TO_DATE"
+          python -m engine.wf_runner \
+              --universe portfolio \
+              --from "$WF_FROM" \
+              --to "$TO_DATE" \
+              --grid full \
+              --warmup-bars 50 \
+              --output-csv wf_full_v3_results.csv \
+              --stability-json wf_full_v3_stability.json
+
+      - name: Generate snapshot
+        working-directory: quant_v3
+        run: |
+          python -m scripts.generate_wf_snapshot
+          cat walkforward_snapshot.json | python -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          a = d['aggregate']
+          print(f\"Fold: {a['n_folds']}\")
+          print(f\"IS Sharpe: {a['is_sharpe_mean']:.3f}\")
+          print(f\"OOS Sharpe: {a['oos_sharpe_mean']:.3f}\")
+          print(f\"Degradation: {a['degradation_mean']:.3f}\")
+          print(f\"Overfitting: {a['overfitting_count']}/{a['n_folds']}\")
+          "
+
+      - name: Detect parameter drift
+        id: drift
+        working-directory: quant_v3
+        run: |
+          # Confronta active_params.json con i nuovi stable_params
+          python << 'EOF'
+          import json, os
+          with open('config/active_params.json') as f: old = json.load(f)
+          with open('wf_full_v3_stability.json') as f: new = json.load(f)
+          old_params = {k: v['value'] for k, v in old['params'].items() if v.get('confidence') != 'fixed'}
+          new_params = new.get('stable_params', {})
+          drift = []
+          for k in old_params:
+              if k in new_params and old_params[k] != new_params[k]:
+                  drift.append(f"{k}: {old_params[k]} → {new_params[k]}")
+          gh_out = os.environ.get('GITHUB_OUTPUT')
+          if drift:
+              msg = "; ".join(drift)
+              print(f"::warning::Parameter drift rilevato: {msg}")
+              if gh_out:
+                  with open(gh_out, 'a') as f: f.write(f"drift={msg}\n")
+          else:
+              print("Nessun parameter drift rilevato.")
+              if gh_out:
+                  with open(gh_out, 'a') as f: f.write("drift=\n")
+          EOF
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add quant_v3/wf_full_v3_results.csv \
+                  quant_v3/wf_full_v3_stability.json \
+                  quant_v3/walkforward_snapshot.json
+          if git diff --staged --quiet; then
+            echo "Nessuna modifica ai risultati WF"
+          else
+            DRIFT="${{ steps.drift.outputs.drift }}"
+            if [ -n "$DRIFT" ]; then
+              git commit -m "walkforward: monthly re-validation $(date -u +%Y-%m-%d) [DRIFT: $DRIFT] [skip ci]"
+            else
+              git commit -m "walkforward: monthly re-validation $(date -u +%Y-%m-%d) [skip ci]"
+            fi
+            git push origin v3-quant-framework
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Walk-Forward Monthly Re-validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f quant_v3/walkforward_snapshot.json ]; then
+            python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          with open('quant_v3/walkforward_snapshot.json') as f: d = json.load(f)
+          a = d['aggregate']
+          print(f"- **Fold totali**: {a['n_folds']}")
+          print(f"- **IS Sharpe medio**: {a['is_sharpe_mean']:.3f}")
+          print(f"- **OOS Sharpe medio**: {a['oos_sharpe_mean']:.3f}")
+          print(f"- **Degradation ratio**: {a['degradation_mean']:.3f}")
+          print(f"- **Overfitting count**: {a['overfitting_count']}/{a['n_folds']}")
+          print(f"- **Stability level**: {a['stability_level']}")
+          EOF
+          fi
+          DRIFT="${{ steps.drift.outputs.drift }}"
+          if [ -n "$DRIFT" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**⚠️ Parameter drift rilevato**: $DRIFT" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Verifica i nuovi parametri stabili e aggiorna active_params.json se confermati." >> $GITHUB_STEP_SUMMARY
+          fi
