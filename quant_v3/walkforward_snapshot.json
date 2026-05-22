@@ -1,0 +1,263 @@
+{
+  "_meta": {
+    "generated_at": "2026-05-22T14:04:57.976475+00:00",
+    "generator": "quant_v3/scripts/generate_wf_snapshot.py",
+    "source_results_csv": "wf_full_v3_results.csv",
+    "source_stability_json": "wf_full_v3_stability.json",
+    "validation_commit": "4e5de5a",
+    "validation_date": "2026-05-22",
+    "data_lake_range": [
+      "2023-01-01",
+      "2026-05-22"
+    ],
+    "next_revalidation_due": "2026-06-22"
+  },
+  "aggregate": {
+    "n_folds": 5,
+    "is_sharpe_mean": 1.1764445756838833,
+    "oos_sharpe_mean": 1.0797011555584117,
+    "degradation_mean": 0.9374487946301304,
+    "overfitting_count": 0,
+    "overfitting_pct": 0.0,
+    "stability_level": "high"
+  },
+  "active_params": {
+    "threshold": {
+      "value": 0.25,
+      "confidence": "medium",
+      "stable_in_folds": 3,
+      "total_folds": 5,
+      "note": "Vincente in 3/5 fold. Tie-break favorisce threshold più alta (più conservativa)."
+    },
+    "min_concordant": {
+      "value": 3,
+      "confidence": "medium",
+      "stable_in_folds": 3,
+      "total_folds": 5,
+      "note": "3 moduli concordanti su 6 (Trend, Mean-Reversion, Volume, Fundamentals, Macro, Sentiment)."
+    },
+    "target_risk_pct": {
+      "value": 0.008,
+      "confidence": "high",
+      "stable_in_folds": 5,
+      "total_folds": 5,
+      "note": "Stabile in tutti i fold. 0.8% di volatility target per posizione."
+    },
+    "max_sector_pct": {
+      "value": null,
+      "confidence": "high",
+      "stable_in_folds": 5,
+      "total_folds": 5,
+      "note": "Stabile null in tutti i fold: il vincolo settoriale NON migliora la performance OOS."
+    },
+    "max_portfolio_beta": {
+      "value": null,
+      "confidence": "high",
+      "stable_in_folds": 5,
+      "total_folds": 5,
+      "note": "Stabile null in tutti i fold: il vincolo di beta portfolio NON migliora la performance OOS."
+    },
+    "max_positions": {
+      "value": 10,
+      "confidence": "fixed",
+      "stable_in_folds": null,
+      "total_folds": 5,
+      "note": "Parametro fisso (non ottimizzato nella griglia WF)."
+    },
+    "per_ticker_cap": {
+      "value": 0.1,
+      "confidence": "fixed",
+      "stable_in_folds": null,
+      "total_folds": 5,
+      "note": "Parametro fisso (non ottimizzato nella griglia WF)."
+    },
+    "warmup_bars": {
+      "value": 50,
+      "confidence": "fixed",
+      "stable_in_folds": null,
+      "total_folds": 5,
+      "note": "Warmup esplicito; sommato a minperiod=200 SMA200 → 250 bar totali."
+    }
+  },
+  "param_stability": {
+    "threshold": {
+      "distribution": {
+        "0.25": 3,
+        "0.2": 2
+      },
+      "winner_value": "0.25",
+      "winner_count": 3,
+      "total_folds": 5,
+      "is_stable": true,
+      "stability_pct": 60.0
+    },
+    "min_concordant": {
+      "distribution": {
+        "2": 2,
+        "3": 3
+      },
+      "winner_value": "3",
+      "winner_count": 3,
+      "total_folds": 5,
+      "is_stable": true,
+      "stability_pct": 60.0
+    },
+    "target_risk_pct": {
+      "distribution": {
+        "0.008": 5
+      },
+      "winner_value": "0.008",
+      "winner_count": 5,
+      "total_folds": 5,
+      "is_stable": true,
+      "stability_pct": 100.0
+    },
+    "max_sector_pct": {
+      "distribution": {
+        "None": 5
+      },
+      "winner_value": "None",
+      "winner_count": 5,
+      "total_folds": 5,
+      "is_stable": true,
+      "stability_pct": 100.0
+    },
+    "max_portfolio_beta": {
+      "distribution": {
+        "None": 5
+      },
+      "winner_value": "None",
+      "winner_count": 5,
+      "total_folds": 5,
+      "is_stable": true,
+      "stability_pct": 100.0
+    }
+  },
+  "folds": [
+    {
+      "fold_id": 1,
+      "is_start": "2024-02-22",
+      "is_end": "2025-02-22",
+      "oos_start": "2025-02-22",
+      "oos_end": "2025-05-22",
+      "is_sharpe": 1.01126139263092,
+      "oos_sharpe": 1.0,
+      "degradation_ratio": 0.9888640140788704,
+      "overfitting_flag": false,
+      "is_pnl_pct": 39.09784747058143,
+      "oos_pnl_pct": 2.2490634004859844,
+      "is_max_dd_pct": 13.092304828680035,
+      "oos_max_dd_pct": 17.85574347339291,
+      "is_trades": 12,
+      "oos_trades": 12,
+      "n_combos_evaluated": 72,
+      "best_params": {
+        "threshold": 0.25,
+        "min_concordant": 2,
+        "target_risk_pct": 0.008,
+        "max_sector_pct": null,
+        "max_portfolio_beta": null
+      }
+    },
+    {
+      "fold_id": 2,
+      "is_start": "2024-05-22",
+      "is_end": "2025-05-22",
+      "oos_start": "2025-05-22",
+      "oos_end": "2025-08-22",
+      "is_sharpe": 1.414199779752831,
+      "oos_sharpe": 1.0,
+      "degradation_ratio": 0.7071136725638415,
+      "overfitting_flag": false,
+      "is_pnl_pct": 28.260180323333262,
+      "oos_pnl_pct": 5.7618264834470745,
+      "is_max_dd_pct": 15.018390303083084,
+      "oos_max_dd_pct": 3.647414373126058,
+      "is_trades": 10,
+      "oos_trades": 10,
+      "n_combos_evaluated": 72,
+      "best_params": {
+        "threshold": 0.25,
+        "min_concordant": 3,
+        "target_risk_pct": 0.008,
+        "max_sector_pct": null,
+        "max_portfolio_beta": null
+      }
+    },
+    {
+      "fold_id": 3,
+      "is_start": "2024-08-22",
+      "is_end": "2025-08-22",
+      "oos_start": "2025-08-22",
+      "oos_end": "2025-11-22",
+      "is_sharpe": 1.3205187552058222,
+      "oos_sharpe": 1.0,
+      "degradation_ratio": 0.757278150013201,
+      "overfitting_flag": false,
+      "is_pnl_pct": 51.51365975336446,
+      "oos_pnl_pct": 6.462714412290582,
+      "is_max_dd_pct": 18.078880941357472,
+      "oos_max_dd_pct": 4.975884947341123,
+      "is_trades": 10,
+      "oos_trades": 10,
+      "n_combos_evaluated": 72,
+      "best_params": {
+        "threshold": 0.25,
+        "min_concordant": 3,
+        "target_risk_pct": 0.008,
+        "max_sector_pct": null,
+        "max_portfolio_beta": null
+      }
+    },
+    {
+      "fold_id": 4,
+      "is_start": "2024-11-22",
+      "is_end": "2025-11-22",
+      "oos_start": "2025-11-22",
+      "oos_end": "2026-02-22",
+      "is_sharpe": 1.1119539112554917,
+      "oos_sharpe": 1.3985057777920582,
+      "degradation_ratio": 1.257701208328882,
+      "overfitting_flag": false,
+      "is_pnl_pct": 16.955437586577894,
+      "oos_pnl_pct": 10.664069555618273,
+      "is_max_dd_pct": 19.025886543540885,
+      "oos_max_dd_pct": 3.992715647162816,
+      "is_trades": 10,
+      "oos_trades": 7,
+      "n_combos_evaluated": 72,
+      "best_params": {
+        "threshold": 0.2,
+        "min_concordant": 3,
+        "target_risk_pct": 0.008,
+        "max_sector_pct": null,
+        "max_portfolio_beta": null
+      }
+    },
+    {
+      "fold_id": 5,
+      "is_start": "2025-02-22",
+      "is_end": "2026-02-22",
+      "oos_start": "2026-02-22",
+      "oos_end": "2026-05-22",
+      "is_sharpe": 1.0242890395743511,
+      "oos_sharpe": 1.0,
+      "degradation_ratio": 0.9762869281658578,
+      "overfitting_flag": false,
+      "is_pnl_pct": 24.151761022170536,
+      "oos_pnl_pct": 4.397854363306042,
+      "is_max_dd_pct": 18.119287025737588,
+      "oos_max_dd_pct": 12.495092277408505,
+      "is_trades": 17,
+      "oos_trades": 11,
+      "n_combos_evaluated": 72,
+      "best_params": {
+        "threshold": 0.2,
+        "min_concordant": 2,
+        "target_risk_pct": 0.008,
+        "max_sector_pct": null,
+        "max_portfolio_beta": null
+      }
+    }
+  ]
+}

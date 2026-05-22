@@ -1,0 +1,79 @@
+{
+  "_meta": {
+    "description": "Parametri attivi della strategia, derivati dalla validazione Walk-Forward Fase 4 estesa (data lake 2023-01-01, 5 fold 12m/3m/3m).",
+    "validation_commit": "4e5de5a",
+    "validation_date": "2026-05-22",
+    "validation_grid_combos": 72,
+    "validation_folds": 5,
+    "validation_total_backtests": 360,
+    "data_lake_range": ["2023-01-01", "2026-05-22"],
+    "source": "wf_full_v3_results.csv + wf_full_v3_stability.json",
+    "next_revalidation_due": "2026-06-22"
+  },
+  "params": {
+    "threshold": {
+      "value": 0.25,
+      "stable_in_folds": 3,
+      "total_folds": 5,
+      "confidence": "medium",
+      "note": "Vincente in 3/5 fold. Tie-break favorisce threshold più alta (più conservativa)."
+    },
+    "min_concordant": {
+      "value": 3,
+      "stable_in_folds": 3,
+      "total_folds": 5,
+      "confidence": "medium",
+      "note": "3 moduli concordanti su 6 (Trend, Mean-Reversion, Volume, Fundamentals, Macro, Sentiment)."
+    },
+    "target_risk_pct": {
+      "value": 0.008,
+      "stable_in_folds": 5,
+      "total_folds": 5,
+      "confidence": "high",
+      "note": "Stabile in tutti i fold. 0.8% di volatility target per posizione."
+    },
+    "max_sector_pct": {
+      "value": null,
+      "stable_in_folds": 5,
+      "total_folds": 5,
+      "confidence": "high",
+      "note": "Stabile null in tutti i fold: il vincolo settoriale NON migliora la performance OOS."
+    },
+    "max_portfolio_beta": {
+      "value": null,
+      "stable_in_folds": 5,
+      "total_folds": 5,
+      "confidence": "high",
+      "note": "Stabile null in tutti i fold: il vincolo di beta portfolio NON migliora la performance OOS."
+    },
+    "max_positions": {
+      "value": 10,
+      "stable_in_folds": null,
+      "total_folds": 5,
+      "confidence": "fixed",
+      "note": "Parametro fisso (non ottimizzato nella griglia WF)."
+    },
+    "per_ticker_cap": {
+      "value": 0.10,
+      "stable_in_folds": null,
+      "total_folds": 5,
+      "confidence": "fixed",
+      "note": "Parametro fisso (non ottimizzato nella griglia WF)."
+    },
+    "warmup_bars": {
+      "value": 50,
+      "stable_in_folds": null,
+      "total_folds": 5,
+      "confidence": "fixed",
+      "note": "Warmup esplicito; sommato a minperiod=200 SMA200 → 250 bar totali."
+    }
+  },
+  "stability_summary": {
+    "is_sharpe_mean": 1.176,
+    "oos_sharpe_mean": 1.080,
+    "degradation_ratio": 0.94,
+    "overfitting_fold_count": 0,
+    "total_folds": 5,
+    "stability_level": "high"
+  }
+}
