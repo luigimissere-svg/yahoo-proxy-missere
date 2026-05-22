@@ -106,20 +106,28 @@ def yahoo_chart(ticker: str, range_str: str = "3mo", interval: str = "1d", timeo
 
 
 def yahoo_quote(ticker: str, timeout: int = 6) -> dict:
-    """Ritorna {ok, price, prev_close, var_pct}."""
-    url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={urllib.parse.quote(ticker)}"
+    """Ritorna {ok, price, prev_close, var_pct} usando /v8/finance/chart con range=5d (più affidabile di v7)."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker)}"
+    url += "?range=5d&interval=1d&includePrePost=false"
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             j = json.loads(resp.read().decode("utf-8"))
-        r = j["quoteResponse"]["result"][0]
-        price = r.get("regularMarketPrice")
-        prev = r.get("regularMarketPreviousClose")
+        result = j["chart"]["result"][0]
+        meta = result.get("meta", {})
+        price = meta.get("regularMarketPrice")
+        prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+        # Fallback: usa ultimi due close della serie
+        if price is None or prev is None:
+            closes = [c for c in result["indicators"]["quote"][0]["close"] if c is not None]
+            if len(closes) >= 2:
+                price = closes[-1]
+                prev = closes[-2]
         if price is None or prev is None or prev == 0:
             return {"ok": False, "error": "no_price"}
         var_pct = (price - prev) / prev * 100
         return {"ok": True, "price": price, "prev_close": prev, "var_pct": var_pct,
-                "currency": r.get("currency"), "ts": r.get("regularMarketTime")}
+                "currency": meta.get("currency"), "ts": meta.get("regularMarketTime")}
     except Exception as e:
         return {"ok": False, "error": f"yahoo_quote: {str(e)[:80]}"}
 
