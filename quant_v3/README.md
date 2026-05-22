@@ -530,11 +530,121 @@ python -m pytest tests/ -v
 | `unsupported format character '('` | Help argparse contiene `%` non valido — fixed |
 | yfinance 429 / blocked | Lancia da casa (no Vercel/Actions IP); `--sleep 1.0` aumenta delay |
 
+## Fase 4 — Walk-Forward + parameter stability (✓ completata)
+
+Framework di validazione out-of-sample con rolling window. **Non cerca il
+parametro 'migliore in assoluto'**: misura se il sistema è stabile OOS e se i
+parametri ottimali ricorrono coerentemente nei fold.
+
+### Schema rolling window
+
+Dataset disponibile: 2024-08-01 → 2026-05-22 (~22 mesi reali).
+
+- **IS = 12 mesi** (training/optimization)
+- **OOS = 3 mesi** (validazione)
+- **Step = 3 mesi** (rolling forward)
+- **Fold reali generati = 3** (l'ultimo richiederebbe OOS oltre 2026-05)
+
+| Fold | IS                          | OOS                         |
+| ---- | --------------------------- | --------------------------- |
+| F1   | 2024-08-01 → 2025-08-01     | 2025-08-01 → 2025-11-01     |
+| F2   | 2024-11-01 → 2025-11-01     | 2025-11-01 → 2026-02-01     |
+| F3   | 2025-02-01 → 2026-02-01     | 2026-02-01 → 2026-05-01     |
+
+### Griglia parametri (72 combinazioni)
+
+| Parametro             | Valori                |
+| --------------------- | --------------------- |
+| `threshold`           | 0.10, 0.15, 0.25      |
+| `min_concordant`      | 2, 3                  |
+| `target_risk_pct`     | 0.005, 0.008, 0.012   |
+| `max_sector_pct`      | None, 0.3             |
+| `max_portfolio_beta`  | None, 1.3             |
+
+Totale = 3 × 2 × 3 × 2 × 2 = 72 combo × 3 fold = 216 backtest IS + 3 OOS.
+
+### Selezione & stabilità
+
+- **Metrica obiettivo IS**: Sharpe annualizzato semplice.
+- **Tie-break**: a parità di Sharpe (entro 5%), preferisco la `threshold` più
+  alta (parametro più conservativo).
+- **Min trades per fold**: 5 (sotto, lo skippo per evitare risultati spuri).
+- **Overfitting flag**: OOS_Sharpe < 0.3 × IS_Sharpe (solo se IS > 0).
+- **Parametro 'stabile'**: stesso valore vincente in ≥3/3 fold.
+
+### Risultati Full Run (72 combo)
+
+| Fold | IS Sharpe | OOS Sharpe | Degradation | OOS Trades | OOS DD | Flag    |
+| ---- | --------- | ---------- | ----------- | ---------- | ------ | ------- |
+| F1   | 2.576     | 0.000      | 0.00        | 4          | 0.86%  | ⚠ OVF  |
+| F2   | 1.000     | 1.599      | 1.60        | 2          | 1.00%  | ok      |
+| F3   | 1.304     | 1.000      | 0.77        | 10         | 1.76%  | ok      |
+
+**Aggregate stability**:
+- IS Sharpe medio: **1.627**
+- OOS Sharpe medio: **0.866**
+- Degradation ratio medio: **0.79** (> 0.7 = molto stabile)
+- Overfitting count: **1/3 fold**
+
+**Parametri stabili** (3/3 fold):
+- `threshold = 0.25`
+- `target_risk_pct = 0.008`
+- `max_sector_pct = None`
+- `max_portfolio_beta = None`
+- `min_concordant`: 3 in 2/3 fold (quasi stabile)
+
+### Esempi CLI
+
+```bash
+# Smoke run (8 combo, ~2 min)
+python -m engine.wf_runner --universe portfolio \
+    --from 2024-08-01 --to 2026-05-22 \
+    --grid smoke \
+    --output-csv wf_smoke_results.csv \
+    --stability-json wf_smoke_stability.json
+
+# Full run (72 combo, ~20 min)
+python -m engine.wf_runner --universe portfolio \
+    --from 2024-08-01 --to 2026-05-22 \
+    --grid full \
+    --output-csv wf_full_results.csv \
+    --stability-json wf_full_stability.json
+
+# Custom schema (es. 18m IS / 6m OOS / 6m step)
+python -m engine.wf_runner --universe portfolio \
+    --is-months 18 --oos-months 6 --step-months 6 \
+    --grid full
+```
+
+### Note implementative
+
+- **TrendModuleWF**: per i fold OOS di 3 mesi (~63 bar), il `TrendModule`
+  default con `sma_long=200` causa `IndexError` (basicops). Il WF runner usa
+  un override `TrendModuleWF` con `sma_short=20, sma_long=60` (subclass
+  inline in `wf_runner.main`).
+- **Warmup**: `warmup_calendar_days=120` arretra il feed `fromdate` per
+  alimentare gli indicatori PRIMA della finestra di valutazione.
+  `warmup_bars=60` ridotto rispetto al default 200 della strategy.
+- **TradeAnalyzer**: usiamo `total.total` (open + closed) e NON `total.closed`,
+  perché le posizioni IS spesso restano aperte fino al fold end.
+- **Loop esplicito** sui parametri (no `cerebro.optstrategy`): permette
+  scoring custom, gestione exception per combo, e logging dettagliato.
+
+### File generati
+
+- `engine/walkforward.py` (478 righe): `Fold`, `FoldResult`, `RunMetrics`,
+  `generate_folds`, `expand_grid`, `select_best_params`, `aggregate_stability`,
+  `run_walkforward`.
+- `engine/wf_runner.py` (480 righe): CLI runner + `make_backtest_runner` factory
+  + `TrendModuleWF`.
+- `tests/test_walkforward.py` (37 test): tutti i moduli del framework.
+- Test suite totale: **200 test verdi** in 4.3s.
+
 ## Roadmap fasi successive
 
 - **F2** — ✓ Engine Backtrader: PatrimonioStrategy + 6 moduli + CustomData
 - **F3** — ✓ Risk Management: ✓ 3.1 vol-target sizing, ✓ 3.2 regime VIX exit
   dinamica, ✓ 3.3 portfolio constraints (sector cap + beta cap)
-- **F4** — Optimization + Walk-Forward: optstrategy su rolling window 12m/3m,
-  out-of-sample validation, parameter stability analysis
+- **F4** — ✓ Walk-Forward + parameter stability: rolling window 12m/3m,
+  griglia 72 combo, OOS validation, stability analysis
 - **F5** — Reporting + integrazione: PDF report + pesi ottimizzati → v2.0 production
