@@ -4,6 +4,20 @@
     "api/quotes.py": {
       "runtime": "@vercel/python@4.3.0",
       "maxDuration": 10
+    },
+    "api/signals-run.py": {
+      "runtime": "@vercel/python@4.3.0",
+      "maxDuration": 30
+    },
+    "api/signals-cache.py": {
+      "runtime": "@vercel/python@4.3.0",
+      "maxDuration": 30
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/signals-run?commit=1", "schedule": "0 8 * * 1-5" },
+    { "path": "/api/signals-run?commit=1", "schedule": "0 12 * * 1-5" },
+    { "path": "/api/signals-run?commit=1", "schedule": "35 15 * * 1-5" },
+    { "path": "/api/signals-run?commit=1", "schedule": "5 20 * * 1-5" }
+  ]
 }
