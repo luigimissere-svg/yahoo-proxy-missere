@@ -36,6 +36,7 @@ from engine.regime import (
     DEFAULT_DELEVERAGING,
     DEFAULT_TRAILING_ATR_MULT,
 )
+from engine.constraints import PortfolioConstraints
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,11 @@ class PatrimonioStrategy(bt.Strategy):
         ('regime_thresholds', None),       # override soglie VIX (dict regime→threshold)
         ('deleveraging_factors', None),    # override fattori size (dict regime→factor)
         ('trailing_atr_mults', None),      # override mult ATR trailing (dict regime→mult)
+        # ── Portfolio constraints (Fase 3.3) ──
+        # max_sector_pct=None o 0 → disabilita sector cap.
+        # max_portfolio_beta=None o 0 → disabilita beta cap.
+        # Se entrambi None/0, lo step constraint check viene bypassato.
+        ('portfolio_constraints', None),   # istanza PortfolioConstraints; se None → no constraints
     )
 
     # ── Init ─────────────────────────────────────────────────────────────
@@ -124,6 +130,13 @@ class PatrimonioStrategy(bt.Strategy):
             deleveraging=self.p.deleveraging_factors or dict(DEFAULT_DELEVERAGING),
             trailing_atr_mult=self.p.trailing_atr_mults or dict(DEFAULT_TRAILING_ATR_MULT),
         )
+
+        # Portfolio constraints (Fase 3.3) — None significa no-constraints
+        self._constraints: Optional[PortfolioConstraints] = self.p.portfolio_constraints
+        # Counter violazioni per diagnostica
+        self._n_blocked_by_sector_cap = 0
+        self._n_blocked_by_beta_cap = 0
+        self._n_scaled_by_constraints = 0
         # Cache: regime corrente (aggiornato a ogni bar)
         self._regime_state = None
         # Counter regime exposure (giorni per regime) per diagnostica
@@ -361,21 +374,101 @@ class PatrimonioStrategy(bt.Strategy):
         # PASS 2: ranking per score, top-N rispettando max_positions
         candidates.sort(key=lambda x: -x[0])
         slots_available = self.p.max_positions - self._open_positions_count()
-        for score, d, tk, diag in candidates[:slots_available]:
+        slots_used = 0
+        for score, d, tk, diag in candidates:
+            if slots_used >= slots_available:
+                break
             size = self._size_for(d)
-            if size > 0:
-                self.buy(data=d, size=size)
-                self.entry_price[tk] = d.close[0]
-                self.entry_bar[tk] = self.bar_count
-                self.peak_price[tk] = d.close[0]
-                if self.p.verbose:
-                    vol_eur = self._vol_eur(d) if self.p.sizing_method == 'vol_target' else None
-                    vol_str = f" vol_eur={vol_eur:.3f}" if vol_eur else ""
-                    self.log(
-                        f"BUY {tk} size={size} px={d.close[0]:.2f} "
-                        f"notional={size * d.close[0]:.0f} composite={score:.3f}{vol_str}"
-                    )
-                self._record_trade(tk, d, 'BUY', score, diag, 'composite_signal')
+            if size <= 0:
+                continue
+            # Portfolio constraints check (Fase 3.3)
+            size = self._apply_constraints(d, tk, size)
+            if size <= 0:
+                continue  # blocked by constraint
+            self.buy(data=d, size=size)
+            slots_used += 1
+            self.entry_price[tk] = d.close[0]
+            self.entry_bar[tk] = self.bar_count
+            self.peak_price[tk] = d.close[0]
+            if self.p.verbose:
+                vol_eur = self._vol_eur(d) if self.p.sizing_method == 'vol_target' else None
+                vol_str = f" vol_eur={vol_eur:.3f}" if vol_eur else ""
+                self.log(
+                    f"BUY {tk} size={size} px={d.close[0]:.2f} "
+                    f"notional={size * d.close[0]:.0f} composite={score:.3f}{vol_str}"
+                )
+            self._record_trade(tk, d, 'BUY', score, diag, 'composite_signal')
+
+    def _current_positions_notional(self) -> Dict[str, float]:
+        """Snapshot notional per ticker (size × prezzo corrente) per i feed con position aperta."""
+        out: Dict[str, float] = {}
+        for d in self.datas:
+            if d is self._vix_feed:
+                continue
+            pos = self.getposition(d)
+            if pos.size > 0:
+                try:
+                    out[self._ticker(d)] = float(pos.size) * float(d.close[0])
+                except (IndexError, ValueError):
+                    pass
+        return out
+
+    def _apply_constraints(self, data, ticker: str, size: int) -> int:
+        """
+        Applica portfolio constraints al candidato BUY.
+
+        Returns:
+            size finale (eventualmente 0 se blocked, o ridotto se scale_down).
+        """
+        if self._constraints is None:
+            return size
+        if not (self._constraints.sector_cap_enabled or self._constraints.beta_cap_enabled):
+            return size
+
+        price = float(data.close[0])
+        candidate_notional = float(size) * price
+        nav = self.broker.get_value()
+        positions = self._current_positions_notional()
+
+        violates, reason = self._constraints.would_violate(
+            candidate_ticker=ticker,
+            candidate_notional=candidate_notional,
+            positions=positions,
+            nav=nav,
+        )
+        if not violates:
+            return size
+
+        # Aggiorno counter diagnostico
+        if reason and reason.startswith('sector_cap'):
+            self._n_blocked_by_sector_cap += 1
+        elif reason and reason.startswith('beta_cap'):
+            self._n_blocked_by_beta_cap += 1
+
+        if self._constraints.violation_policy == 'block_new':
+            if self.p.verbose:
+                self.log(f"SKIP {ticker} constraint={reason}")
+            return 0
+
+        # scale_down: riduci notional al massimo consentito
+        max_notional = self._constraints.max_notional_allowed(ticker, positions, nav)
+        if max_notional <= 0 or not math.isfinite(max_notional):
+            if self.p.verbose:
+                self.log(f"SKIP {ticker} constraint={reason} (scale_down: no room)")
+            return 0
+        new_size = int(max_notional / price)
+        # Rispetta min_position_pct: se sotto, abort
+        if self.p.sizing_method == 'vol_target' and new_size * price < self.p.min_position_pct * nav:
+            if self.p.verbose:
+                self.log(f"SKIP {ticker} constraint={reason} (scale_down<min_position)")
+            return 0
+        self._n_scaled_by_constraints += 1
+        if self.p.verbose:
+            self.log(
+                f"SCALE {ticker} {size}→{new_size} ({candidate_notional:.0f}→{new_size*price:.0f}) "
+                f"constraint={reason}"
+            )
+        return max(0, new_size)
 
 
     # ── Exit logic ───────────────────────────────────────────────────────
@@ -473,6 +566,27 @@ class PatrimonioStrategy(bt.Strategy):
                     "Exit reasons: "
                     + "  ".join(f"{k}={v}" for k, v in self._exit_reasons_count.items())
                 )
+        # Diagnostica portfolio constraints (Fase 3.3)
+        if self._constraints is not None and (
+            self._constraints.sector_cap_enabled or self._constraints.beta_cap_enabled
+        ):
+            logger.info(
+                f"Constraints: blocked_by_sector={self._n_blocked_by_sector_cap}  "
+                f"blocked_by_beta={self._n_blocked_by_beta_cap}  "
+                f"scaled={self._n_scaled_by_constraints}"
+            )
+            # Final exposure snapshot
+            final_positions = self._current_positions_notional()
+            diag = self._constraints.diagnose(final_positions, self.broker.get_value())
+            if diag['sector_exposure']:
+                logger.info(
+                    "Final sector exposure: "
+                    + "  ".join(
+                        f"{s}={pct*100:.1f}%"
+                        for s, pct in sorted(diag['sector_exposure'].items(), key=lambda x: -x[1])
+                    )
+                )
+            logger.info(f"Final portfolio beta: {diag['portfolio_beta']:.2f}")
 
     # ── Public API ───────────────────────────────────────────────────────
 

@@ -37,6 +37,7 @@ from engine.data_loader import DataLakeLoader
 from engine.custom_data import build_feed
 from engine.strategy import PatrimonioStrategy
 from engine.modules._fundamentals import set_data_root as set_fundamentals_root
+from engine.constraints import make_default_constraints
 
 
 def parse_args():
@@ -78,6 +79,15 @@ def parse_args():
                         "'full' (size + trailing ATR adattivo). Default 'off'")
     p.add_argument('--vix-ticker', type=str, default='^VIX',
                    help="Simbolo VIX nel data lake (default ^VIX). Vuoto = nessun VIX")
+    # ── Portfolio constraints (Fase 3.3) ──
+    p.add_argument('--max-sector-pct', type=float, default=None,
+                   help="Cap %% NAV per settore (es. 0.30). Default None = disabled")
+    p.add_argument('--max-beta', type=float, default=None,
+                   help="Cap portfolio beta (es. 1.3). Default None = disabled")
+    p.add_argument('--metadata-path', type=str, default='data/meta/sector_beta.parquet',
+                   help="Parquet con ticker→sector,beta (default data/meta/sector_beta.parquet)")
+    p.add_argument('--violation-policy', choices=['block_new', 'scale_down'], default='block_new',
+                   help="Su violazione cap: 'block_new' (skip) o 'scale_down' (riduce size)")
     # ── Pre-screening fundamentals (Strategia B) ──
     p.add_argument('--no-quality-filter', dest='quality_filter_enabled',
                    action='store_false', default=True,
@@ -133,6 +143,26 @@ def run_backtest(args):
             print(f"  skip {t}: {e}")
     print(f"Feeds added: {n_added}")
 
+    # ── Portfolio constraints (Fase 3.3) ───────────────────────────────
+    portfolio_constraints = None
+    sector_cap_active = args.max_sector_pct is not None and args.max_sector_pct > 0
+    beta_cap_active = args.max_beta is not None and args.max_beta > 0
+    if sector_cap_active or beta_cap_active:
+        meta_path = Path(args.metadata_path)
+        if not meta_path.exists():
+            print(f"WARN: metadata file '{meta_path}' non trovato → constraints disabilitati")
+            print("      Esegui: python -m engine.fetch_metadata --universe portfolio")
+        else:
+            portfolio_constraints = make_default_constraints(
+                metadata_path=meta_path,
+                max_sector_pct=args.max_sector_pct if sector_cap_active else None,
+                max_portfolio_beta=args.max_beta if beta_cap_active else None,
+                violation_policy=args.violation_policy,
+            )
+            n_sect = len(portfolio_constraints.sector_map)
+            n_beta = sum(1 for b in portfolio_constraints.beta_map.values() if b != 1.0)
+            print(f"Constraints loaded: {n_sect} ticker mapped, {n_beta} con beta custom")
+
     # ── Feed VIX (non-tradable) per regime detection ─────────────────────
     vix_feed_name = args.vix_ticker if (args.vix_ticker and args.regime_mode != 'off') else None
     if vix_feed_name:
@@ -186,6 +216,7 @@ def run_backtest(args):
         vol_lookback=args.vol_lookback,
         regime_mode=args.regime_mode,
         vix_feed_name=vix_feed_name,
+        portfolio_constraints=portfolio_constraints,
     )
 
     # ── Analyzers ─────────────────────────────────────────────────────────
@@ -217,6 +248,14 @@ def run_backtest(args):
         print(f"Regime: mode={args.regime_mode}  VIX feed={vix_feed_name}")
     else:
         print("Regime: off (legacy)")
+    if portfolio_constraints is not None and (
+        portfolio_constraints.sector_cap_enabled or portfolio_constraints.beta_cap_enabled
+    ):
+        s_cap = f"sector≤{args.max_sector_pct:.0%}" if portfolio_constraints.sector_cap_enabled else "sector=off"
+        b_cap = f"beta≤{args.max_beta:.2f}" if portfolio_constraints.beta_cap_enabled else "beta=off"
+        print(f"Constraints: {s_cap}  {b_cap}  policy={args.violation_policy}")
+    else:
+        print("Constraints: off")
     print()
 
     res = cerebro.run()

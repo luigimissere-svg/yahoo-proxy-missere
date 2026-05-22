@@ -38,6 +38,10 @@ quant_v3/
 │   ├── signals.py                 # CompositeSignal Hybrid A+C
 │   ├── strategy.py                # PatrimonioStrategy (long-only, ranking-based)
 │   ├── runner.py                  # CLI backtest + analyzers QuantStats
+│   ├── sizing.py                  # ✓ F3.1 PositionSizer vol-target/Kelly
+│   ├── regime.py                  # ✓ F3.2 RegimeDetector VIX
+│   ├── constraints.py             # ✓ F3.3 PortfolioConstraints (sector + beta cap)
+│   ├── fetch_metadata.py          # ✓ F3.3 yfinance fetch sector+beta
 │   └── modules/                   # 6 alpha modules
 │       ├── trend.py               # SMA cross + ADX + slope
 │       ├── momentum.py            # RSI + MACD/ATR + ROC
@@ -45,10 +49,11 @@ quant_v3/
 │       ├── value.py               # P/E + P/B + FCF yield
 │       ├── quality.py             # ROE + margin + D/E
 │       └── event_driven.py        # PEAD post-earnings drift
-├── tests/                          # pytest suite (107 test, < 5s)
+├── tests/                          # pytest suite (163 test, < 5s)
 │   ├── test_sizing.py             # ✅ Fase 3.1 (vol_target + edge cases)
-│   └── test_regime.py             # ✅ Fase 3.2 (regime VIX + deleveraging + trailing)
-├── risk/                          # [F3.3+] Sector caps + beta cap (TODO)
+│   ├── test_regime.py             # ✅ Fase 3.2 (regime VIX + deleveraging + trailing)
+│   └── test_constraints.py        # ✅ Fase 3.3 (sector cap + beta cap)
+├── data/meta/sector_beta.parquet  # ✓ Fase 3.3 — ticker→(sector, beta) cache
 ├── optimization/                  # [F4] Walk-forward + optstrategy (TODO)
 └── reports/                       # Report PDF di backtest
 ```
@@ -279,6 +284,101 @@ cerebro.addstrategy(
 Il `RegimeDetector` è **stateless** (una sola `detect(vix)` per bar) e iniettabile
 via parametri, quindi pronto per ottimizzazione walk-forward di soglie e fattori.
 
+### Fase 3.3 — Portfolio Constraints (sector cap + beta cap)
+
+Vincoli pre-trade applicati ai candidati BUY per evitare concentrazioni eccessive
+di settore o esposizioni di mercato (beta) elevate. Step finale di Fase 3 (Risk
+Management), pronto per la validazione walk-forward in Fase 4.
+
+**Vincoli**:
+- `sector cap`: max X% NAV per settore GICS (default **30%**).
+- `beta cap`: max Σ(weight_i × beta_i) sull'intero portfolio (default **1.3**).
+
+**Distribuzione settori portfolio (35 ticker)** — cached in `data/meta/sector_beta.parquet`:
+
+| Settore | Ticker | Esempi notevoli |
+|---|---|---|
+| Consumer Cyclical | 7 | AMZN, BKNG, MELI, ITX.MC, MC.PA, RACE.MI, SE |
+| Healthcare | 5 | LLY (β=0.48), BSX, GMAB.CO, NOVO-B.CO (β=0.35), ZTS |
+| Utilities | 5 | EDP.LS, ENEL.MI, IBE.MC, PPC.AT, TRN.MI |
+| Financial Services | 5 | BBVA.MC, BMPS.MI, BNP.PA, ETE.AT, EUROB.AT |
+| Technology | 4 | ADBE, MSFT, MU (β=1.92), NVDA (β=2.24) |
+| Industrials | 4 | AENA.MC, FER.MC, LHA.DE, PRY.MI |
+| Consumer Defensive | 2 | JMT.LS, WMT |
+| Communication Services | 1 | META (β=1.24) |
+| Energy | 1 | REP.MC (β=−0.13) |
+| Real Estate | 1 | AMT |
+
+Beta range: **−0.13 → 2.24**, mean ≈ 0.91. Coverage: 35/35.
+
+**Policy di violazione** (`--violation-policy`):
+- `block_new` (default): se il candidato porterebbe a violare un cap, **skippa**
+  il BUY e prova il candidato successivo nel ranking.
+- `scale_down`: riduce le shares in modo da rispettare i cap residui (rispetta
+  `min_position_pct` floor; se il floor non sta nei cap → skip).
+
+**Unknown handling**: ticker non in `sector_map` finiscono in pool `'Unknown'`
+(default `unknown_pool=True`, applica il sector cap anche al pool). Ticker senza
+beta → β=1.0 (neutro).
+
+**Backtest 2024-08 → 2026-05 (portfolio Missere, 35 ticker)**:
+
+| Config | P&L | Sharpe | Max DD | Trades | Note |
+|---|---|---|---|---|---|
+| baseline (no constraints) | +14.83% | 1.355 | 4.52% | 10 | Fase 3.2 ref |
+| sector≤30% | +14.83% | 1.355 | 4.52% | 10 | non binding |
+| sector≤30% + β≤1.3 | +14.83% | 1.355 | 4.52% | 10 | non binding |
+| sector≤15% scale_down | +10.72% | 1.274 | **3.23%** | 9 | DD −29%, P&L −28% |
+| sector≤5% (stress) | 0.00% | — | 0.00% | 0 | 47 BUY bloccati, sanity check |
+
+**Lettura**: sui 10 trade del portfolio Missere il sector cap a 30% non è
+binding (la strategy con `per_ticker_cap=10%` + `max_positions=10` non concentra
+naturalmente più del 20-25% per settore). Il valore del framework si vede al
+restringersi del cap o nello stress test: i log diagnostici `SKIP <ticker>
+constraint=...` documentano ogni violazione, e il counter finale
+`blocked_by_sector / blocked_by_beta / scaled` quantifica l'intervento. È
+esattamente lo strumento che serve per la walk-forward Fase 4: previene scenari
+estremi (es. NVDA+MU+MSFT insieme con beta totale 1.8+) quando l'ottimizzatore
+tenterà combinazioni aggressive di parametri.
+
+**Fetch metadata** (yfinance una tantum):
+```bash
+python -m engine.fetch_metadata --universe portfolio        # 35 ticker, ~1 min
+python -m engine.fetch_metadata --universe extended         # 970 ticker, ~25 min
+python -m engine.fetch_metadata --resume                    # skip già fatti
+```
+Output: `data/meta/sector_beta.parquet` (colonne: ticker, sector, beta, industry).
+
+**Esempi CLI**:
+```bash
+# sector cap 30%, beta cap 1.3 (default)
+python -m engine.runner --universe portfolio --from 2024-08-01 \
+    --max-sector-pct 0.30 --max-beta 1.3 \
+    --metadata-path data/meta/sector_beta.parquet
+
+# solo sector cap, policy scale_down
+python -m engine.runner --universe portfolio --from 2024-08-01 \
+    --max-sector-pct 0.25 --violation-policy scale_down \
+    --metadata-path data/meta/sector_beta.parquet --verbose
+```
+
+**Override pythonico**:
+```python
+from engine.constraints import make_default_constraints
+from engine.strategy import PatrimonioStrategy
+
+constraints = make_default_constraints(
+    metadata_path='data/meta/sector_beta.parquet',
+    max_sector_pct=0.30,
+    max_portfolio_beta=1.3,
+    violation_policy='block_new',
+)
+cerebro.addstrategy(PatrimonioStrategy, portfolio_constraints=constraints)
+```
+
+`PortfolioConstraints` è **stateless** (no side effects su `would_violate`) e
+iniettabile, quindi compatibile con ottimizzazione walk-forward.
+
 ### Setup engine
 
 ```bash
@@ -338,6 +438,13 @@ python -m engine.runner --universe portfolio --from 2024-08-01 \
 ```bash
 python -m engine.runner --universe portfolio --from 2024-08-01 \
     --regime-mode full --verbose
+```
+
+**Backtest con portfolio constraints (Fase 3.3)**:
+```bash
+python -m engine.runner --universe portfolio --from 2024-08-01 \
+    --max-sector-pct 0.30 --max-beta 1.3 \
+    --metadata-path data/meta/sector_beta.parquet --verbose
 ```
 
 ### Parametri runner CLI
@@ -402,13 +509,14 @@ cd quant_v3
 python -m pytest tests/ -v
 ```
 
-107 test, < 5s. Coverage:
+163 test, < 5s. Coverage:
 - `test_data_loader.py` (11) — lake structure + feed building
-- `test_signals.py` (15) — composite blending + gating + Strategia B (pesi 0, pre-screening)
+- `test_signals.py` (17) — composite blending + gating + Strategia B (pesi 0, pre-screening)
 - `test_modules.py` (16) — 6 moduli alpha + bounds + monotonia
 - `test_strategy_smoke.py` (3) — e2e cerebro run + quality_filter unit
 - `test_sizing.py` (21) — PositionSizer equal vs vol_target, caps, edge cases
 - `test_regime.py` (39) — RegimeDetector VIX (classify, deleveraging, trailing, mode bypass)
+- `test_constraints.py` (56) — PortfolioConstraints (sector cap, beta cap, would_violate, scale_down, edge cases)
 
 ### Troubleshooting
 
@@ -425,8 +533,8 @@ python -m pytest tests/ -v
 ## Roadmap fasi successive
 
 - **F2** — ✓ Engine Backtrader: PatrimonioStrategy + 6 moduli + CustomData
-- **F3** — Risk Management: position sizing avanzato (vol-targeting, Kelly capped),
-  exit logic dinamica (regime-aware), portfolio constraints (sector cap, beta cap)
+- **F3** — ✓ Risk Management: ✓ 3.1 vol-target sizing, ✓ 3.2 regime VIX exit
+  dinamica, ✓ 3.3 portfolio constraints (sector cap + beta cap)
 - **F4** — Optimization + Walk-Forward: optstrategy su rolling window 12m/3m,
   out-of-sample validation, parameter stability analysis
 - **F5** — Reporting + integrazione: PDF report + pesi ottimizzati → v2.0 production
