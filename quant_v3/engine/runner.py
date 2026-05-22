@@ -59,6 +59,19 @@ def parse_args():
     p.add_argument('--take-profit', type=float, default=None)
     p.add_argument('--trailing', type=float, default=None)
     p.add_argument('--warmup-bars', type=int, default=200)
+    # ── Position sizing (Fase 3.1) ──
+    p.add_argument('--sizing', choices=['equal', 'vol_target'], default='vol_target',
+                   help="Metodo sizing: 'equal' (legacy) o 'vol_target' (default)")
+    p.add_argument('--target-risk', type=float, default=0.01,
+                   help="Rischio target per trade come %% NAV (default 0.01 = 1%%)")
+    p.add_argument('--min-position', type=float, default=0.005,
+                   help="Notional minimo per emettere trade come %% NAV (default 0.005)")
+    p.add_argument('--vol-floor', type=float, default=0.005,
+                   help="Vol floor come %% prezzo per evitare sizing esplosivo (default 0.005)")
+    p.add_argument('--vol-proxy', choices=['atr', 'realized'], default='atr',
+                   help="Stima vol: 'atr' (default) o 'realized' (std dei returns)")
+    p.add_argument('--vol-lookback', type=int, default=14,
+                   help="Periodo ATR o lookback realized vol (default 14)")
     # ── Pre-screening fundamentals (Strategia B) ──
     p.add_argument('--no-quality-filter', dest='quality_filter_enabled',
                    action='store_false', default=True,
@@ -133,6 +146,12 @@ def run_backtest(args):
         quality_filter_enabled=args.quality_filter_enabled,
         value_floor=args.value_floor,
         quality_floor=args.quality_floor,
+        sizing_method=args.sizing,
+        target_risk_pct=args.target_risk,
+        min_position_pct=args.min_position,
+        vol_floor_pct=args.vol_floor,
+        vol_proxy=args.vol_proxy,
+        vol_lookback=args.vol_lookback,
     )
 
     # ── Analyzers ─────────────────────────────────────────────────────────
@@ -153,7 +172,14 @@ def run_backtest(args):
     print(f"\nStart cash: {args.cash:,.2f}  commission: {args.commission*100:.2f}%")
     print(f"Period: {args.fromdate} → {args.todate or 'end'}")
     qf_status = 'ON' if args.quality_filter_enabled else 'OFF'
-    print(f"Quality filter: {qf_status}  (value_floor={args.value_floor} quality_floor={args.quality_floor})\n")
+    print(f"Quality filter: {qf_status}  (value_floor={args.value_floor} quality_floor={args.quality_floor})")
+    if args.sizing == 'vol_target':
+        print(f"Sizing: vol_target  (target_risk={args.target_risk:.2%} "
+              f"vol_proxy={args.vol_proxy}({args.vol_lookback}) "
+              f"min_position={args.min_position:.2%} vol_floor={args.vol_floor:.2%})")
+    else:
+        print(f"Sizing: equal_weight (cap={args.per_ticker_cap:.2%} per ticker)")
+    print()
 
     res = cerebro.run()
     strat = res[0]

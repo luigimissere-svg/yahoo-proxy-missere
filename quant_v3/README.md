@@ -45,8 +45,9 @@ quant_v3/
 │       ├── value.py               # P/E + P/B + FCF yield
 │       ├── quality.py             # ROE + margin + D/E
 │       └── event_driven.py        # PEAD post-earnings drift
-├── tests/                          # pytest suite (47 test, < 5s)
-├── risk/                          # [F3] Risk management (TODO)
+├── tests/                          # pytest suite (68 test, < 5s)
+│   └── test_sizing.py             # ✅ Fase 3.1 (vol_target + edge cases)
+├── risk/                          # [F3.2+] Exit dinamica + sector caps (TODO)
 ├── optimization/                  # [F4] Walk-forward + optstrategy (TODO)
 └── reports/                       # Report PDF di backtest
 ```
@@ -189,6 +190,44 @@ Lo snapshot statico dei fundamentals creava un bias value-tilt EU (banche/utilit
 che escludeva mega-cap tech US ad alta crescita. Il pre-screening preserva la funzione
 risk-management ("no junk") senza penalizzare growth stock di qualità.
 
+### Fase 3.1 — Position Sizing Vol-Targeted
+
+Il sizing equal-weight (`per_ticker_cap` fisso) carica lo stesso notional su titoli
+tranquilli e volatili. Il vol-targeting alloca più capitale su asset stabili e meno
+su asset volatili, mantenendo un rischio target uniforme per posizione.
+
+**Formula** (`engine/sizing.py::PositionSizer`):
+
+```
+target_risk_eur  = target_risk_pct  × NAV       (es. 1% × 100k = 1000)
+vol_proxy_eur    = ATR(14) o std(returns_21d) × close
+vol_shares       = target_risk_eur / vol_proxy_eur
+final_shares     = min(vol_shares, cap_shares, cash_shares)
+skip if          notional < min_position_pct × NAV
+```
+
+**Caps di sicurezza**:
+- `per_ticker_cap` (default 10% NAV) — hard upper cap, evita concentrazione
+- `min_position_pct` (default 0.5% NAV) — sotto, salta trade (no micro-positions)
+- `vol_floor_pct` (default 0.5% prezzo) — vol minima, evita leverage esplosivo
+
+**Esempi BUY su portfolio (vol_target attivo)**:
+
+| Ticker | Prezzo | ATR(14) EUR | Shares | Notional |
+|---|---|---|---|---|
+| NVDA | 184.89 | 6.22 | 55 | 10.169 |
+| LLY | 868.27 | 27.76 | 12 | 10.419 |
+| BMPS.MI | 8.78 | 0.26 | 1138 | 9.995 |
+| EDP.LS | 4.28 | 0.11 | 2312 | 9.888 |
+| MU | 426.13 | 24.98 | 23 | 9.801 |
+
+Il cap del 10% NAV è binding nella maggior parte dei casi col target_risk=1% di default,
+rendendo vol_target equivalente a equal in portfolio piccoli. **In Fase 4 (walk-forward)**
+ottimizzeremo `target_risk × cap` insieme. Per testare il vol-target puro:
+```bash
+python -m engine.runner --target-risk 0.005 --per-ticker-cap 0.20
+```
+
 ### Setup engine
 
 ```bash
@@ -263,6 +302,12 @@ python -m engine.runner --universe portfolio --from 2024-08-01 \
 | `--no-quality-filter` | (enabled) | Disabilita pre-screening fundamentals |
 | `--value-floor` | `-0.5` | Soglia minima value_score |
 | `--quality-floor` | `-0.5` | Soglia minima quality_score |
+| `--sizing` | `vol_target` | Metodo sizing: `equal` (legacy) o `vol_target` |
+| `--target-risk` | `0.01` | Rischio target per trade (% NAV) |
+| `--min-position` | `0.005` | Notional minimo (% NAV); sotto, skip trade |
+| `--vol-floor` | `0.005` | Vol floor (% prezzo) per evitare sizing esplosivo |
+| `--vol-proxy` | `atr` | `atr` o `realized` (std returns) |
+| `--vol-lookback` | `14` | Periodo ATR/realized vol |
 
 ### Output runner
 
@@ -292,11 +337,12 @@ cd quant_v3
 python -m pytest tests/ -v
 ```
 
-47 test, < 5s. Coverage:
+68 test, < 5s. Coverage:
 - `test_data_loader.py` (11) — lake structure + feed building
 - `test_signals.py` (15) — composite blending + gating + Strategia B (pesi 0, pre-screening)
 - `test_modules.py` (16) — 6 moduli alpha + bounds + monotonia
 - `test_strategy_smoke.py` (3) — e2e cerebro run + quality_filter unit
+- `test_sizing.py` (21) — PositionSizer equal vs vol_target, caps, edge cases
 
 ### Troubleshooting
 

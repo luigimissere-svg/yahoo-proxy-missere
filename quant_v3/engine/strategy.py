@@ -29,6 +29,7 @@ import backtrader as bt
 
 from engine.signals import CompositeSignal, DEFAULT_WEIGHTS
 from engine.modules import DEFAULT_MODULES
+from engine.sizing import PositionSizer
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,13 @@ class PatrimonioStrategy(bt.Strategy):
         ('quality_filter_enabled', True),
         ('value_floor', -0.5),      # value_score >= -0.5 per passare (o NaN/0)
         ('quality_floor', -0.5),    # quality_score >= -0.5 per passare (o NaN/0)
+        # ── Position sizing (Fase 3.1) ──
+        ('sizing_method', 'vol_target'),   # 'equal' (legacy) | 'vol_target'
+        ('target_risk_pct', 0.01),         # 1% NAV per trade (vol-target)
+        ('min_position_pct', 0.005),       # 0.5% NAV: sotto skip
+        ('vol_floor_pct', 0.005),          # vol floor = 0.5% prezzo
+        ('vol_proxy', 'atr'),              # 'atr' | 'realized'
+        ('vol_lookback', 14),              # ATR period (o realized vol window)
     )
 
     # ── Init ─────────────────────────────────────────────────────────────
@@ -84,8 +92,21 @@ class PatrimonioStrategy(bt.Strategy):
             min_concordant=self.p.min_concordant,
         )
 
+        # Position sizer (Fase 3.1)
+        # NB: usiamo nome `_position_sizer` per evitare collisione con bt.Strategy.sizer
+        self._position_sizer = PositionSizer(
+            method=self.p.sizing_method,
+            target_risk_pct=self.p.target_risk_pct,
+            per_ticker_cap=self.p.per_ticker_cap,
+            min_position_pct=self.p.min_position_pct,
+            vol_floor_pct=self.p.vol_floor_pct,
+            vol_proxy=self.p.vol_proxy,
+        )
+
         # Istanzio i moduli per OGNI feed (data) → dict[data] = dict[mod_name → AlphaModule]
         self._modules: Dict[bt.feeds.PandasData, Dict[str, object]] = {}
+        # ATR(period) indicator per ogni feed — usato per vol_target sizing
+        self._atr: Dict[bt.feeds.PandasData, bt.indicators.ATR] = {}
         for d in self.datas:
             mods = {}
             for mod_name, mod_cls in module_classes.items():
@@ -93,6 +114,11 @@ class PatrimonioStrategy(bt.Strategy):
                 m.prepare(d)
                 mods[mod_name] = m
             self._modules[d] = mods
+            # ATR built-in Backtrader (high/low/close required)
+            try:
+                self._atr[d] = bt.indicators.ATR(d, period=self.p.vol_lookback)
+            except Exception:
+                self._atr[d] = None
 
         # Tracking
         self.entry_price: Dict[str, float] = {}
@@ -163,17 +189,54 @@ class PatrimonioStrategy(bt.Strategy):
         total = self._open_positions_count() + self._pending_buys_count()
         return total < self.p.max_positions
 
+    def _vol_eur(self, data) -> float | None:
+        """
+        Stima vol_proxy in valuta per il feed:
+        - 'atr':       ATR(N) corrente (in valuta, già corretto)
+        - 'realized':  std(returns_N) × close
+        Ritorna None se non disponibile (warmup, dati insufficienti).
+        """
+        if self.p.vol_proxy == 'atr':
+            atr = self._atr.get(data)
+            if atr is None:
+                return None
+            try:
+                v = float(atr[0])
+                if not math.isfinite(v) or v <= 0:
+                    return None
+                return v
+            except (IndexError, ValueError):
+                return None
+        elif self.p.vol_proxy == 'realized':
+            # Calcola realized vol N-day da close history del feed
+            n = self.p.vol_lookback
+            try:
+                if len(data) < n + 1:
+                    return None
+                # Estrai close history (backtrader: data.close[-i])
+                closes = [float(data.close[-i]) for i in range(n + 1)]
+                closes.reverse()  # cronologico
+                rets = [(closes[i] / closes[i-1] - 1.0) for i in range(1, len(closes))]
+                if len(rets) < 5:
+                    return None
+                arr = [r for r in rets if math.isfinite(r)]
+                if len(arr) < 5:
+                    return None
+                mean = sum(arr) / len(arr)
+                var = sum((r - mean) ** 2 for r in arr) / (len(arr) - 1)
+                sigma = var ** 0.5
+                return sigma * float(data.close[0])
+            except (IndexError, ValueError):
+                return None
+        return None
+
     def _size_for(self, data) -> int:
-        """Sizing equal-weight rispettando per_ticker_cap."""
+        """Position sizing tramite PositionSizer (Fase 3.1)."""
+        nav = self.broker.get_value()
         cash = self.broker.get_cash()
-        portfolio_value = self.broker.get_value()
-        # Available cash budget = min(cash, cap × portfolio_value)
-        budget = min(cash, self.p.per_ticker_cap * portfolio_value)
-        price = data.close[0]
-        if price <= 0 or budget <= 0:
-            return 0
-        size = int(budget / price)
-        return max(0, size)
+        price = float(data.close[0])
+        vol_eur = self._vol_eur(data) if self.p.sizing_method == 'vol_target' else None
+        return self._position_sizer.size(nav=nav, cash=cash, price=price, vol_eur=vol_eur)
 
     # ── Main loop ────────────────────────────────────────────────────────
 
@@ -228,7 +291,12 @@ class PatrimonioStrategy(bt.Strategy):
                 self.entry_bar[tk] = self.bar_count
                 self.peak_price[tk] = d.close[0]
                 if self.p.verbose:
-                    self.log(f"BUY {tk} size={size} px={d.close[0]:.2f} composite={score:.3f}")
+                    vol_eur = self._vol_eur(d) if self.p.sizing_method == 'vol_target' else None
+                    vol_str = f" vol_eur={vol_eur:.3f}" if vol_eur else ""
+                    self.log(
+                        f"BUY {tk} size={size} px={d.close[0]:.2f} "
+                        f"notional={size * d.close[0]:.0f} composite={score:.3f}{vol_str}"
+                    )
                 self._record_trade(tk, d, 'BUY', score, diag, 'composite_signal')
 
 
