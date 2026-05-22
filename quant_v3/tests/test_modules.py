@@ -15,6 +15,9 @@ from engine.modules.trend import TrendModule
 from engine.modules.momentum import MomentumModule
 from engine.modules.mean_reversion import MeanReversionModule
 from engine.modules.event_driven import EventDrivenModule
+from engine.modules.value import ValueModule
+from engine.modules.quality import QualityModule
+from engine.modules import _fundamentals as fund_mod
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -173,3 +176,103 @@ def test_event_driven_default_zero():
     scores = _run_module(EventDrivenModule(), prices)
     # PandasData base non ha lines earnings/dividend custom; should default to 0
     assert all(s == 0.0 for s in scores)
+
+
+# ─── Value / Quality (require fundamentals) ───────────────────────────
+
+
+def test_value_no_fundamentals_returns_zero(tmp_path):
+    """Senza parquet fundamentals, ValueModule ritorna 0.0."""
+    fund_mod.set_data_root(tmp_path)  # tmp_path vuoto, niente fundamentals
+    prices = np.linspace(100, 110, 100)
+    feed = _make_feed(prices)
+    feed._name = 'TESTNOFUND'
+    m = ValueModule()
+    m.prepare(feed)
+    assert m.score() == 0.0
+
+
+def test_value_undervalued_positive(tmp_path):
+    """Stock undervalued (low P/E, low P/B, alto FCF yield) → score positivo."""
+    # Crea parquet finto
+    fund_dir = tmp_path / 'fundamentals'
+    fund_dir.mkdir()
+    df = pd.DataFrame([{
+        'ticker': 'CHEAP',
+        'pe_trailing': 8.0,    # < pe_low (10)
+        'pb': 0.8,             # < pb_low (1)
+        'fcf_yield': 0.10,     # > target (7%)
+        'roe': 0.15,
+        'profit_margin': 0.10,
+        'debt_equity': 30.0,
+    }])
+    df.to_parquet(fund_dir / 'CHEAP.parquet', index=False)
+
+    fund_mod.set_data_root(tmp_path)
+    feed = _make_feed(np.linspace(100, 110, 100))
+    feed._name = 'CHEAP'
+    m = ValueModule()
+    m.prepare(feed)
+    score = m.score()
+    assert score > 0.5, f"Expected high positive value score, got {score:.3f}"
+
+
+def test_value_overvalued_negative(tmp_path):
+    fund_dir = tmp_path / 'fundamentals'
+    fund_dir.mkdir()
+    df = pd.DataFrame([{
+        'ticker': 'EXPENSIVE',
+        'pe_trailing': 60.0,   # >> pe_high (30)
+        'pb': 8.0,             # >> pb_high (4)
+        'fcf_yield': -0.02,    # negative
+    }])
+    df.to_parquet(fund_dir / 'EXPENSIVE.parquet', index=False)
+
+    fund_mod.set_data_root(tmp_path)
+    feed = _make_feed(np.linspace(100, 110, 100))
+    feed._name = 'EXPENSIVE'
+    m = ValueModule()
+    m.prepare(feed)
+    score = m.score()
+    assert score < -0.5, f"Expected negative value score, got {score:.3f}"
+
+
+def test_quality_excellent_positive(tmp_path):
+    """Stock con ROE 25%, margin 20%, D/E 30 → score alto."""
+    fund_dir = tmp_path / 'fundamentals'
+    fund_dir.mkdir()
+    df = pd.DataFrame([{
+        'ticker': 'TOP',
+        'roe': 0.25,
+        'profit_margin': 0.20,
+        'debt_equity': 30.0,
+    }])
+    df.to_parquet(fund_dir / 'TOP.parquet', index=False)
+
+    fund_mod.set_data_root(tmp_path)
+    feed = _make_feed(np.linspace(100, 110, 100))
+    feed._name = 'TOP'
+    m = QualityModule()
+    m.prepare(feed)
+    score = m.score()
+    assert score > 0.7, f"Expected high quality score, got {score:.3f}"
+
+
+def test_quality_poor_negative(tmp_path):
+    fund_dir = tmp_path / 'fundamentals'
+    fund_dir.mkdir()
+    df = pd.DataFrame([{
+        'ticker': 'BAD',
+        'roe': -0.05,            # ROE negativo
+        'profit_margin': -0.03,  # loss-making
+        'debt_equity': 350.0,    # high leverage
+    }])
+    df.to_parquet(fund_dir / 'BAD.parquet', index=False)
+
+    fund_mod.set_data_root(tmp_path)
+    feed = _make_feed(np.linspace(100, 110, 100))
+    feed._name = 'BAD'
+    m = QualityModule()
+    m.prepare(feed)
+    score = m.score()
+    assert score < -0.5, f"Expected negative quality, got {score:.3f}"

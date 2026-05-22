@@ -36,6 +36,7 @@ sys.path.insert(0, str(ROOT))
 from engine.data_loader import DataLakeLoader
 from engine.custom_data import build_feed
 from engine.strategy import PatrimonioStrategy
+from engine.modules._fundamentals import set_data_root as set_fundamentals_root
 
 
 def parse_args():
@@ -73,6 +74,8 @@ def run_backtest(args):
 
     # ── Load universe ─────────────────────────────────────────────────────
     loader = DataLakeLoader(data_root=args.data_root)
+    # Inizializza root fundamentals per moduli value/quality
+    set_fundamentals_root(args.data_root)
     print(f"Data lake summary: {loader.summary()}")
 
     tickers = loader.list_tickers(args.universe, apply_filters=True)
