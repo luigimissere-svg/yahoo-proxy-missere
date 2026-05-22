@@ -45,7 +45,7 @@ quant_v3/
 │       ├── value.py               # P/E + P/B + FCF yield
 │       ├── quality.py             # ROE + margin + D/E
 │       └── event_driven.py        # PEAD post-earnings drift
-├── tests/                          # pytest suite (41 test, < 5s)
+├── tests/                          # pytest suite (47 test, < 5s)
 ├── risk/                          # [F3] Risk management (TODO)
 ├── optimization/                  # [F4] Walk-forward + optstrategy (TODO)
 └── reports/                       # Report PDF di backtest
@@ -158,16 +158,36 @@ Trade emesso solo se:
 - `|composite| ≥ threshold` (default 0.20)
 - `≥ min_concordant` moduli hanno stesso segno del composite (default 3)
 
-**Pesi default** (`engine/signals.py::DEFAULT_WEIGHTS`):
+**Pesi default — Strategia B (pre-screening)** (`engine/signals.py::DEFAULT_WEIGHTS`):
 
 | Modulo | Peso | Cosa misura |
 |---|---|---|
-| trend | 0.25 | SMA50/200 cross + ADX + slope |
-| momentum | 0.25 | RSI(14) + MACD/ATR + ROC(21) |
-| mean_reversion | 0.15 | Z-score(20) + Bollinger + ADX filter |
-| value | 0.15 | P/E + P/B + FCF yield |
-| quality | 0.10 | ROE + profit margin + D/E |
-| event_driven | 0.10 | PEAD post-earnings drift |
+| trend | 0.30 | SMA50/200 cross + ADX + slope |
+| momentum | 0.30 | RSI(14) + MACD/ATR + ROC(21) |
+| mean_reversion | 0.20 | Z-score(20) + Bollinger + ADX filter |
+| value | **0.00** | P/E + P/B + FCF yield — *pre-screening only* |
+| quality | **0.00** | ROE + profit margin + D/E — *pre-screening only* |
+| event_driven | 0.20 | PEAD post-earnings drift |
+
+### Strategia B: fundamentals come pre-screening
+
+Value e Quality NON contribuiscono al composite (weight=0). Vengono invece usati
+come filtro pre-screening sui candidati BUY: il ticker è **scartato solo se ENTRAMBI**
+`value_score < value_floor` E `quality_score < quality_floor` (default `-0.5`).
+
+**Logica permissiva**: score 0 o NaN (fundamentals mancanti) = benefit of doubt, NON scarta.
+
+**Motivazione** (validata su backtest 2024-08 → 2026-05, portfolio Missere):
+
+| Configurazione | P&L | Sharpe annual | Max DD |
+|---|---|---|---|
+| value/quality nel composite | -1.32% | -0.054 | 8.32% |
+| value/quality esclusi (no filter) | +12.29% | +1.170 | 4.06% |
+| **Strategia B: pre-screening** | **+14.83%** | **+1.355** | **4.52%** |
+
+Lo snapshot statico dei fundamentals creava un bias value-tilt EU (banche/utilities)
+che escludeva mega-cap tech US ad alta crescita. Il pre-screening preserva la funzione
+risk-management ("no junk") senza penalizzare growth stock di qualità.
 
 ### Setup engine
 
@@ -187,7 +207,9 @@ python ingestion/fetch_fundamentals.py --resume                # skip gìà fatt
 
 Output: `data/fundamentals/{TICKER}.parquet`
 
-Senza fundamentals, value/quality ritornano 0.0 (neutri) e gli altri 4 moduli dominano.
+Senza fundamentals, value/quality ritornano 0.0 (neutri) e il pre-screening fa
+benefit of doubt: nessun candidato viene scartato. Con i fundamentals, il filtro
+elimina junk stock con value E quality estremi (negativi).
 
 ### Esempi run
 
@@ -238,15 +260,18 @@ python -m engine.runner --universe portfolio --from 2024-08-01 \
 | `--equity-csv` | None | CSV equity curve giornaliera |
 | `--quantstats-html` | None | Report HTML completo |
 | `--verbose` | False | Log BUY/EXIT bar-by-bar |
+| `--no-quality-filter` | (enabled) | Disabilita pre-screening fundamentals |
+| `--value-floor` | `-0.5` | Soglia minima value_score |
+| `--quality-floor` | `-0.5` | Soglia minima quality_score |
 
 ### Output runner
 
 ```
 BACKTEST RESULT
-Final value:        112,290.96
-P&L:                +12,290.96  (+12.29%)
-Sharpe (annual):    1.170
-Max drawdown:       4.06%  (length=15 bars)
+Final value:        114,827.03
+P&L:                +14,827.03  (+14.83%)
+Sharpe (annual):    1.355
+Max drawdown:       4.52%  (length=15 bars)
 Calmar ratio:       2.12
 SQN:                2.34   (>1.6 decente, >2 buono, >3 ottimo)
 Trades:             10 (won=4 lost=2 win rate=66.7%)
@@ -267,11 +292,11 @@ cd quant_v3
 python -m pytest tests/ -v
 ```
 
-41 test, < 5s. Coverage:
+47 test, < 5s. Coverage:
 - `test_data_loader.py` (11) — lake structure + feed building
-- `test_signals.py` (12) — composite blending + gating
+- `test_signals.py` (15) — composite blending + gating + Strategia B (pesi 0, pre-screening)
 - `test_modules.py` (16) — 6 moduli alpha + bounds + monotonia
-- `test_strategy_smoke.py` (2) — e2e cerebro run
+- `test_strategy_smoke.py` (3) — e2e cerebro run + quality_filter unit
 
 ### Troubleshooting
 
@@ -280,7 +305,8 @@ python -m pytest tests/ -v
 | `ValueError: badly formed help string` | Python 3.14 — git pull, controlla che runner.py non abbia `%` non escapati nelle help argparse |
 | `invalid path 'CON.DE.parquet'` su `git clone` Windows | Reserved name; risolto in commit `89b4b0c` (rimosso) |
 | `git checkout -f` con file non-tracked | `git reset --hard origin/v3-quant-framework` |
-| Tutte BUY al primo bar e zero EXIT | Fundamentals statici dominano; ridurre pesi value/quality o usare snapshot più recente |
+| Tutte BUY al primo bar e zero EXIT | Fundamentals statici dominano: usa Strategia B (default) oppure `--no-quality-filter` |
+| Quality filter scarta troppi tickers | Abbassa `--value-floor` e `--quality-floor` (es. -0.7) o disabilita con `--no-quality-filter` |
 | `unsupported format character '('` | Help argparse contiene `%` non valido — fixed |
 | yfinance 429 / blocked | Lancia da casa (no Vercel/Actions IP); `--sleep 1.0` aumenta delay |
 

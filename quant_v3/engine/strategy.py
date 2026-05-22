@@ -62,6 +62,13 @@ class PatrimonioStrategy(bt.Strategy):
         ('warmup_bars', 200),
         ('verbose', False),
         ('module_classes', None),   # popolato in __init__
+        # ── Pre-screening fundamentals (Strategia B) ──
+        # I moduli value/quality non entrano nel composite (weight=0) ma
+        # filtrano i candidati BUY: scartati solo se ENTRAMBI sotto floor (junk).
+        # Se almeno uno score è 0 (fundamentals mancanti) → benefit of doubt, NON scarta.
+        ('quality_filter_enabled', True),
+        ('value_floor', -0.5),      # value_score >= -0.5 per passare (o NaN/0)
+        ('quality_floor', -0.5),    # quality_score >= -0.5 per passare (o NaN/0)
     )
 
     # ── Init ─────────────────────────────────────────────────────────────
@@ -93,6 +100,8 @@ class PatrimonioStrategy(bt.Strategy):
         self.peak_price: Dict[str, float] = {}   # per trailing stop
         self.trade_log: List[dict] = []
         self.bar_count = 0
+        # Counter pre-screening (diagnostica)
+        self.n_filtered_by_quality = 0
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -106,7 +115,38 @@ class PatrimonioStrategy(bt.Strategy):
         for mod_name, mod in self._modules[data].items():
             scores[mod_name] = mod.score()
         diag = self.composite.diagnose(scores)
+        # Includo gli score grezzi (anche dei moduli weight=0) per il pre-screening
+        diag['raw_scores'] = scores
         return diag['composite_after_gating'], diag
+
+    def _passes_quality_filter(self, diag: dict) -> bool:
+        """
+        Pre-screening Strategia B: scarta candidato BUY solo se ENTRAMBI
+        value e quality score sono sotto i floor configurati (junk stock).
+
+        Logica permissiva (benefit of doubt):
+        - score == 0 o NaN  → fundamentals mancanti, NON usare per filtrare
+        - score > floor     → passa
+        - solo se ENTRAMBI strict < floor → scarta
+        """
+        if not self.p.quality_filter_enabled:
+            return True
+        scores = diag.get('raw_scores', {})
+        v = scores.get('value', 0.0)
+        q = scores.get('quality', 0.0)
+        # NaN / mancante → tratta come 0 (neutro)
+        try:
+            import math as _math
+            if v is None or _math.isnan(v):
+                v = 0.0
+            if q is None or _math.isnan(q):
+                q = 0.0
+        except Exception:
+            pass
+        # Scarta solo se ENTRAMBI strict sotto floor
+        if v < self.p.value_floor and q < self.p.quality_floor:
+            return False
+        return True
 
     def _open_positions_count(self) -> int:
         return sum(1 for d in self.datas if self.getposition(d).size > 0)
@@ -167,6 +207,14 @@ class PatrimonioStrategy(bt.Strategy):
 
             # Candidato BUY
             if pos.size == 0 and score > 0:
+                # Pre-screening fundamentals (Strategia B)
+                if not self._passes_quality_filter(diag):
+                    self.n_filtered_by_quality += 1
+                    if self.p.verbose:
+                        v = diag.get('raw_scores', {}).get('value', 0.0)
+                        q = diag.get('raw_scores', {}).get('quality', 0.0)
+                        self.log(f"SKIP {tk} quality_filter value={v:.2f} quality={q:.2f}")
+                    continue
                 candidates.append((score, d, tk, diag))
 
         # PASS 2: ranking per score, top-N rispettando max_positions
@@ -242,6 +290,7 @@ class PatrimonioStrategy(bt.Strategy):
         logger.info(
             f"Strategy ended. Bars={self.bar_count}  "
             f"BUY={n_buys}  EXIT={n_exits}  "
+            f"filtered_by_quality={self.n_filtered_by_quality}  "
             f"final_value={self.broker.get_value():,.2f}"
         )
 

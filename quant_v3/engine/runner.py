@@ -59,6 +59,14 @@ def parse_args():
     p.add_argument('--take-profit', type=float, default=None)
     p.add_argument('--trailing', type=float, default=None)
     p.add_argument('--warmup-bars', type=int, default=200)
+    # ── Pre-screening fundamentals (Strategia B) ──
+    p.add_argument('--no-quality-filter', dest='quality_filter_enabled',
+                   action='store_false', default=True,
+                   help="Disabilita il pre-screening value/quality (default: attivo)")
+    p.add_argument('--value-floor', type=float, default=-0.5,
+                   help="Soglia minima value_score per passare il filtro (default -0.5)")
+    p.add_argument('--quality-floor', type=float, default=-0.5,
+                   help="Soglia minima quality_score per passare il filtro (default -0.5)")
     p.add_argument('--log-trades', type=str, default=None,
                    help="Path CSV per dump trade log")
     p.add_argument('--equity-csv', type=str, default=None,
@@ -122,6 +130,9 @@ def run_backtest(args):
         trailing_pct=args.trailing,
         warmup_bars=args.warmup_bars,
         verbose=args.verbose,
+        quality_filter_enabled=args.quality_filter_enabled,
+        value_floor=args.value_floor,
+        quality_floor=args.quality_floor,
     )
 
     # ── Analyzers ─────────────────────────────────────────────────────────
@@ -140,7 +151,9 @@ def run_backtest(args):
 
     # ── Run ───────────────────────────────────────────────────────────────
     print(f"\nStart cash: {args.cash:,.2f}  commission: {args.commission*100:.2f}%")
-    print(f"Period: {args.fromdate} → {args.todate or 'end'}\n")
+    print(f"Period: {args.fromdate} → {args.todate or 'end'}")
+    qf_status = 'ON' if args.quality_filter_enabled else 'OFF'
+    print(f"Quality filter: {qf_status}  (value_floor={args.value_floor} quality_floor={args.quality_floor})\n")
 
     res = cerebro.run()
     strat = res[0]
@@ -189,6 +202,11 @@ def run_backtest(args):
     n_total = trades.get('total', {}).get('total', 0)
     won = trades.get('won', {}).get('total', 0) or 0
     lost = trades.get('lost', {}).get('total', 0) or 0
+    # Pre-screening counter
+    n_filt = getattr(strat, 'n_filtered_by_quality', 0)
+    if n_filt:
+        print(f"Filtered by quality filter: {n_filt} candidati scartati")
+
     if n_total:
         wr = won / n_total * 100
         print(f"Trades:           {n_total} (won={won}  lost={lost}  win rate={wr:.1f}%)")

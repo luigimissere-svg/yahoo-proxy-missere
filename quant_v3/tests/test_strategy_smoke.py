@@ -72,19 +72,62 @@ def test_strategy_buy_when_strong_signal_unit(loader):
     """Test unit della logica composite (senza eseguire cerebro)."""
     from engine.signals import CompositeSignal
 
+    # Con DEFAULT_WEIGHTS Strategia B (4 attivi), serve concordance su 3/4
     sig = CompositeSignal(threshold=0.20, min_concordant=3)
-    # Strong buy: 4+ moduli concordi positivi
+    # Strong buy: trend+momentum+event_driven+mean_rev concordi positivi
     scores = {
-        'trend': 0.8, 'momentum': 0.7, 'mean_reversion': 0.0,
-        'value': 0.3, 'quality': 0.4, 'event_driven': 0.0,
+        'trend': 0.8, 'momentum': 0.7, 'mean_reversion': 0.4,
+        'value': 0.3, 'quality': 0.4, 'event_driven': 0.5,
     }
     composite = sig.combine(scores)
     assert composite > 0.30, f"Strong buy should compose > 0.30, got {composite}"
 
-    # Weak signal: solo 2 concordi
+    # Weak signal: solo 2 concordi tra i moduli attivi (mean_rev e event=0)
     scores = {
         'trend': 0.6, 'momentum': 0.4, 'mean_reversion': 0.0,
         'value': 0.0, 'quality': 0.0, 'event_driven': 0.0,
     }
     composite = sig.combine(scores)
     assert composite == 0.0, f"Weak signal should be filtered, got {composite}"
+
+
+def test_quality_filter_unit():
+    """Test unit del pre-screening (Strategia B) senza eseguire cerebro."""
+    from engine.strategy import PatrimonioStrategy
+
+    # Mock minimale: chiamo il metodo unbound passando un fake-self.
+    class FakeParams:
+        quality_filter_enabled = True
+        value_floor = -0.5
+        quality_floor = -0.5
+
+    class FakeSelf:
+        p = FakeParams()
+
+    fake = FakeSelf()
+    fn = PatrimonioStrategy._passes_quality_filter
+
+    # Caso 1: fundamentals OK → passa
+    diag = {'raw_scores': {'value': 0.3, 'quality': 0.5}}
+    assert fn(fake, diag) is True
+
+    # Caso 2: solo value sotto floor (quality OK) → passa (richiede ENTRAMBI)
+    diag = {'raw_scores': {'value': -0.9, 'quality': 0.2}}
+    assert fn(fake, diag) is True
+
+    # Caso 3: ENTRAMBI sotto floor → scarta
+    diag = {'raw_scores': {'value': -0.8, 'quality': -0.7}}
+    assert fn(fake, diag) is False
+
+    # Caso 4: fundamentals mancanti (0.0) → benefit of doubt, passa
+    diag = {'raw_scores': {'value': 0.0, 'quality': 0.0}}
+    assert fn(fake, diag) is True
+
+    # Caso 5: NaN → benefit of doubt, passa
+    diag = {'raw_scores': {'value': float('nan'), 'quality': float('nan')}}
+    assert fn(fake, diag) is True
+
+    # Caso 6: filtro disabilitato → passa sempre
+    FakeParams.quality_filter_enabled = False
+    diag = {'raw_scores': {'value': -1.0, 'quality': -1.0}}
+    assert fn(fake, diag) is True

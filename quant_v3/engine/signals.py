@@ -39,17 +39,24 @@ import numpy as np
 
 # Pesi default — sommano a 1.0
 # Questi sono il PUNTO DI PARTENZA: in Fase 4 saranno ottimizzati via walk-forward.
+#
+# Strategia B (pre-screening): value e quality sono ESCLUSI dal composite
+# (weight=0) e usati solo come quality_filter pre-screening in strategy.py.
+# Motivo: snapshot fundamentals statici introducevano bias value-tilt EU
+# (banche/utilities) escludendo tech US (NVDA/AMZN/LLY/MU). Backtest 2024-08→2026-05:
+#   - con fund nel composite: P&L -1.32%, Sharpe -0.054, DD 8.32%
+#   - senza fund nel composite: P&L +12.29%, Sharpe +1.17, DD 4.06%
 DEFAULT_WEIGHTS: Dict[str, float] = {
-    'trend':          0.25,
-    'momentum':       0.25,
-    'mean_reversion': 0.15,
-    'value':          0.15,
-    'quality':        0.10,
-    'event_driven':   0.10,
+    'trend':          0.30,
+    'momentum':       0.30,
+    'mean_reversion': 0.20,
+    'value':          0.00,   # filtro pre-screening, non composite
+    'quality':        0.00,   # filtro pre-screening, non composite
+    'event_driven':   0.20,
 }
 
 # Modulo names ammessi (lock per evitare typo silenziosi)
-ALLOWED_MODULES = set(DEFAULT_WEIGHTS.keys())
+ALLOWED_MODULES = {'trend', 'momentum', 'mean_reversion', 'value', 'quality', 'event_driven'}
 
 
 # ─── Composite combiner ──────────────────────────────────────────────────────
@@ -75,13 +82,23 @@ class CompositeSignal:
         unknown = set(self.weights) - ALLOWED_MODULES
         if unknown:
             raise ValueError(f"Unknown module(s) in weights: {unknown}. Allowed: {ALLOWED_MODULES}")
+        # Pesi negativi vietati
+        neg = [m for m, w in self.weights.items() if w < 0]
+        if neg:
+            raise ValueError(f"Negative weights not allowed: {neg}")
         s = sum(self.weights.values())
         if not 0.99 <= s <= 1.01:
             raise ValueError(f"Weights must sum to ~1.0, got {s:.4f}")
         if not 0.0 <= self.threshold <= 1.0:
             raise ValueError(f"threshold must be in [0,1], got {self.threshold}")
-        if not 0 <= self.min_concordant <= len(self.weights):
-            raise ValueError(f"min_concordant must be in [0, {len(self.weights)}]")
+        # Moduli ATTIVI (peso > 0): usati per concordance count
+        self._active_modules = [m for m, w in self.weights.items() if w > 0]
+        max_concordant = len(self._active_modules)
+        if not 0 <= self.min_concordant <= max_concordant:
+            raise ValueError(
+                f"min_concordant must be in [0, {max_concordant}] "
+                f"(only {max_concordant} modules have weight>0), got {self.min_concordant}"
+            )
 
     # ── Single-bar combine ────────────────────────────────────────────────
 
@@ -94,10 +111,14 @@ class CompositeSignal:
 
         Returns:
             composite score in [-1, +1], oppure 0.0 se gating non passa.
+
+        NOTA: moduli con weight=0 vengono ignorati sia nel weighted average
+        sia nel concordance count (per ridurre rumore).
         """
-        # Weighted average (A)
+        # Weighted average (A) — solo moduli attivi (weight > 0)
         weighted_sum = 0.0
-        for mod, w in self.weights.items():
+        for mod in self._active_modules:
+            w = self.weights[mod]
             s = scores.get(mod, 0.0)
             if s is None or np.isnan(s):
                 s = 0.0
@@ -108,10 +129,10 @@ class CompositeSignal:
         if abs(weighted_sum) < self.threshold:
             return 0.0
 
-        # Concordance filter (C): conta quanti moduli concordano col segno del composite
+        # Concordance filter (C): conta quanti moduli ATTIVI concordano col segno
         sign = np.sign(weighted_sum)
         concordant = 0
-        for mod in self.weights:
+        for mod in self._active_modules:
             s = scores.get(mod, 0.0)
             if s is None or np.isnan(s):
                 continue
@@ -128,6 +149,10 @@ class CompositeSignal:
         """
         Ritorna dict con composite, contributo di ogni modulo, n_concordant, decisione.
         Utile per logging e debug strategy.
+
+        I moduli con weight=0 sono comunque inclusi in 'contributions' (per
+        visibilità del loro score grezzo) ma non contano nel weighted_sum né
+        nel concordance count.
         """
         contribs = {}
         weighted_sum = 0.0
@@ -139,8 +164,9 @@ class CompositeSignal:
             weighted_sum += c
 
         sign = np.sign(weighted_sum)
+        # Concordance solo su moduli attivi
         concordant = sum(
-            1 for mod in self.weights
+            1 for mod in self._active_modules
             if np.sign(scores.get(mod, 0.0) or 0.0) == sign
             and abs(scores.get(mod, 0.0) or 0.0) > self.concordance_eps
         )
@@ -153,6 +179,7 @@ class CompositeSignal:
             'sign': int(sign) if emit else 0,
             'n_concordant': int(concordant),
             'min_concordant_required': self.min_concordant,
+            'n_active_modules': len(self._active_modules),
             'threshold': self.threshold,
             'contributions': contribs,
             'emitted': emit,
