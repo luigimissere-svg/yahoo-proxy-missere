@@ -1,0 +1,117 @@
+==========================================================================================
+B3 — TRE TEST DIAGNOSTICI PRE-PATCH (warmup contamination + edge effects)
+==========================================================================================
+
+Trade ledger: 32 righe totali
+  Per fold: {1: 10, 2: 10, 3: 12}
+  Per status: {'closed': 2, 'open_at_end': 30}
+
+==========================================================================================
+IPOTESI 1 — Trade aperti PRE-fold_start (carry-in)
+==========================================================================================
+
+Per fold:
+
+  Fold 1 (OOS start=2025-08-01):
+    trade totali: 10 (0 closed, 10 open_at_end)
+    carry-in espliciti (entry<fold_start, status=closed): 0
+    in-fold (entry>=fold_start): 0
+    incerti (dt_open NaN, tipicamente open_at_end): 10
+    Open_at_end (10 posizioni) — dt_open NaN, sospetti carry-in da fold precedente:
+            AMZN entry_price=234.1500 size=43.0 pnl_pct=+4.30%
+         BBVA.MC entry_price=14.5850 size=687.0 pnl_pct=+19.54%
+            BKNG entry_price=227.1404 size=44.0 pnl_pct=-10.58%
+         BMPS.MI entry_price=7.3640 size=1344.0 pnl_pct=+2.99%
+         ENEL.MI entry_price=7.6960 size=1301.0 pnl_pct=+13.98%
+          JMT.LS entry_price=21.3400 size=469.0 pnl_pct=+4.69%
+          LHA.DE entry_price=7.3980 size=1346.0 pnl_pct=+2.65%
+            META entry_price=715.2000 size=14.0 pnl_pct=-9.35%
+            MSFT entry_price=514.0800 size=19.0 pnl_pct=+0.73%
+          REP.MC entry_price=13.5000 size=742.0 pnl_pct=+17.59%
+
+  Fold 2 (OOS start=2025-11-01):
+    trade totali: 10 (0 closed, 10 open_at_end)
+    carry-in espliciti (entry<fold_start, status=closed): 0
+    in-fold (entry>=fold_start): 0
+    incerti (dt_open NaN, tipicamente open_at_end): 10
+    Open_at_end (10 posizioni) — dt_open NaN, sospetti carry-in da fold precedente:
+         BBVA.MC entry_price=15.7200 size=633.0 pnl_pct=+36.45%
+          EDP.LS entry_price=4.3350 size=2307.0 pnl_pct=-0.41%
+         ENEL.MI entry_price=8.4730 size=1185.0 pnl_pct=+9.86%
+          ETE.AT entry_price=13.4750 size=732.0 pnl_pct=+10.69%
+        EUROB.AT entry_price=3.6180 size=2753.0 pnl_pct=+14.29%
+          FER.MC entry_price=52.2600 size=191.0 pnl_pct=+9.11%
+         GMAB.CO entry_price=2100.0000 size=4.0 pnl_pct=-3.71%
+          IBE.MC entry_price=16.8300 size=596.0 pnl_pct=+12.45%
+              MU entry_price=199.9600 size=52.0 pnl_pct=+107.48%
+          PRY.MI entry_price=88.9600 size=112.0 pnl_pct=+12.92%
+
+  Fold 3 (OOS start=2026-02-01):
+    trade totali: 12 (2 closed, 10 open_at_end)
+    carry-in espliciti (entry<fold_start, status=closed): 2
+    in-fold (entry>=fold_start): 0
+    incerti (dt_open NaN, tipicamente open_at_end): 10
+    DETTAGLIO carry-in espliciti chiusi:
+           MC.PA entry=2026-01-16 exit=2026-03-20 (16d pre-fold) PnL=-25.61% size=15.0
+         BMPS.MI entry=2026-01-16 exit=2026-04-09 (16d pre-fold) PnL=-13.64% size=1086.0
+    Open_at_end (10 posizioni) — dt_open NaN, sospetti carry-in da fold precedente:
+         BBVA.MC entry_price=20.7900 size=478.0 pnl_pct=-9.52%
+          BNP.PA entry_price=87.2300 size=114.0 pnl_pct=+2.29%
+         ENEL.MI entry_price=9.3100 size=1075.0 pnl_pct=+6.59%
+          FER.MC entry_price=60.1400 size=146.0 pnl_pct=-2.83%
+          ITX.MC entry_price=55.5200 size=179.0 pnl_pct=-8.90%
+             LLY entry_price=1024.4301 size=9.0 pnl_pct=-5.96%
+              MU entry_price=353.1000 size=29.0 pnl_pct=+53.56%
+          PPC.AT entry_price=18.5000 size=540.0 pnl_pct=-2.65%
+          PRY.MI entry_price=90.5400 size=89.0 pnl_pct=+41.32%
+          REP.MC entry_price=15.6100 size=637.0 pnl_pct=+45.93%
+
+PATTERN CARRY-IN per fold:
+  Fold 1: NON HA carry-in espliciti chiusi
+  Fold 2: NON HA carry-in espliciti chiusi
+  Fold 3: HA carry-in espliciti chiusi
+
+==========================================================================================
+IPOTESI 3 — MU carry-over F2 -> F3 (controllo cross-fold)
+==========================================================================================
+
+Trade ledger MU su tutti i fold: 2 righe
+  Fold 2: entry_date=NaT exit_date=NaT status=open_at_end entry_price=199.9600 pnl_pct=+107.48%
+  Fold 3: entry_date=NaT exit_date=NaT status=open_at_end entry_price=353.1000 pnl_pct=+53.56%
+
+  Cross-check: MU presente in F2 E F3
+    F3 entry_price MU = 353.1000
+    F3 dt_open MU = NaT (NaN se carry-in)
+    F3 status MU = open_at_end
+    F3 OOS start = 2026-02-01
+    -> Se dt_open MU NaN o << F3 start: IPOTESI 3 CONFERMATA
+
+==========================================================================================
+IPOTESI 2 — Corporate actions Feb-May 2026 sui ticker F3 OOS
+==========================================================================================
+
+Ticker portfolio Fold 3 OOS (12): ['BBVA.MC', 'BMPS.MI', 'BNP.PA', 'ENEL.MI', 'FER.MC', 'ITX.MC', 'LLY', 'MC.PA', 'MU', 'PPC.AT', 'PRY.MI', 'REP.MC']
+
+Diagnostica discontinuità prezzo (gap > 10% in giorni adiacenti) periodo 2026-01-16 -> 2026-05-22:
+
+  Trovate 4 discontinuità >10%:
+           LLY 2026-02-04 ret=+10.33%
+            MU 2026-05-05 ret=+11.06%
+            MU 2026-05-08 ret=+15.49%
+        PRY.MI 2026-05-05 ret=+10.53%
+
+  Cross-check con corporate actions file (se presenti):
+
+==========================================================================================
+SINTESI B3
+==========================================================================================
+
+  Fold 1: 0 carry-in chiusi + 10 open_at_end (sospetti carry-in)
+  Fold 2: 0 carry-in chiusi + 10 open_at_end (sospetti carry-in)
+  Fold 3: 2 carry-in chiusi + 10 open_at_end (sospetti carry-in)
+
+  Decisione B2 punti 2 e 3:
+  - punto 2 (return parziale trade pre-fold): NECESSARIO se carry-in > 0 in qualunque fold
+  - punto 3 (convenzione carry-in): NECESSARIO se open_at_end con prezzo ereditato
+
+  Ipotesi 3 (MU F2->F3): CONFERMATA

@@ -1,0 +1,110 @@
+==========================================================================================
+VERIFICHE PRE-PATCH WARMUP CONTAMINATION (richieste dal consulente)
+==========================================================================================
+
+==========================================================================================
+DUBBIO 1 — Warmup ha return ≈ 0?
+==========================================================================================
+
+Strategia: confronto n_nonzero_returns SALVATO (totale, include warmup) vs
+n_nonzero RICONTATO sulle righe dumpate (filtrate [start,end]).
+Se warmup è 'muto' (return=0 sempre), allora nonzero_saved ≈ nonzero_dumped.
+Se warmup ha trade, allora nonzero_saved > nonzero_dumped.
+
+Trials totali: 432
+
+Statistiche per phase:
+  IS:
+    n trial:              216
+    n_bars_saved:         mean=522.0  range=[521,523]
+    n_rows_dumped:        mean=261.0  range=[260,262]
+    warmup_n_bars:        mean=261.0  range=[261,261]
+    n_nonzero_saved:      mean=267.9  range=[262,272]
+    n_nonzero_dumped:     mean=258.2  range=[257,260]
+    nonzero_extra_warmup: mean=9.7  range=[5,12]
+    pct warmup ZERO:      mean=96.30%  median=95.98%
+
+  OOS:
+    n trial:              216
+    n_bars_saved:         mean=326.0  range=[325,327]
+    n_rows_dumped:        mean=65.3  range=[65,66]
+    warmup_n_bars:        mean=260.7  range=[260,261]
+    n_nonzero_saved:      mean=72.3  range=[64,78]
+    n_nonzero_dumped:     mean=64.3  range=[63,66]
+    nonzero_extra_warmup: mean=8.0  range=[0,12]
+    pct warmup ZERO:      mean=96.93%  median=96.35%
+
+VERDETTO Dubbio 1:
+  PASS — warmup è 95%+ zero in entrambe le fasi (IS=96.3%, OOS=96.9%)
+  Scenario A confermato: deflazione 1/√k è la diagnosi corretta.
+
+Distribuzione nonzero_extra_warmup (per fase):
+  IS: pct trial con extra warmup=0:  0.0%
+  IS: pct trial con extra warmup<=2: 0.0%
+  IS: pct trial con extra warmup<=5: 16.7%
+  OOS: pct trial con extra warmup=0:  16.7%
+  OOS: pct trial con extra warmup<=2: 16.7%
+  OOS: pct trial con extra warmup<=5: 22.2%
+
+==========================================================================================
+DUBBIO 2 — Trade a cavallo del confine fold?
+==========================================================================================
+
+Strategia: confronto cum_return = prod(1+r)-1 sulle serie dumpate (filtrate
+[start,end]) vs PnL pct del results CSV per i best trial per fold.
+Se coincidono entro tol stretta, no edge effect.
+Se PnL_saved > cum_return_dumped, ci sono trade a cavallo che il dump perde.
+
+--- Fold 1 ---
+  IS best trial #61 (n_bars dumpate=262):
+    cum_return (prod-1) =  27.290325%
+    sum_return (additive)=  25.233661%
+    pnl_pct results CSV =  27.847321%
+    delta (cum - pnl)   = -0.556995%
+    -> MEDIO (delta 0.5-2.0pp, possibili trade a cavallo)
+  OOS best trial #61 (n_bars dumpate=66):
+    cum_return (prod-1) =  3.813290%
+    sum_return (additive)=  3.905723%
+    pnl_pct results CSV =  4.559441%
+    delta (cum - pnl)   = -0.746151%
+    -> MEDIO (delta 0.5-2.0pp, possibili trade a cavallo)
+
+--- Fold 2 ---
+  IS best trial #49 (n_bars dumpate=261):
+    cum_return (prod-1) =  29.530383%
+    sum_return (additive)=  27.134986%
+    pnl_pct results CSV =  27.192051%
+    delta (cum - pnl)   = +2.338332%
+    -> ATTENZIONE (delta > 2pp, edge effect significativo)
+  OOS best trial #49 (n_bars dumpate=65):
+    cum_return (prod-1) =  20.454676%
+    sum_return (additive)=  18.992777%
+    pnl_pct results CSV =  21.262330%
+    delta (cum - pnl)   = -0.807654%
+    -> MEDIO (delta 0.5-2.0pp, possibili trade a cavallo)
+
+--- Fold 3 ---
+  IS best trial #51 (n_bars dumpate=260):
+    cum_return (prod-1) =  32.477083%
+    sum_return (additive)=  29.244183%
+    pnl_pct results CSV =  35.652365%
+    delta (cum - pnl)   = -3.175281%
+    -> ATTENZIONE (delta > 2pp, edge effect significativo)
+  OOS best trial #51 (n_bars dumpate=65):
+    cum_return (prod-1) =  5.076265%
+    sum_return (additive)=  5.464777%
+    pnl_pct results CSV =  7.538742%
+    delta (cum - pnl)   = -2.462477%
+    -> ATTENZIONE (delta > 2pp, edge effect significativo)
+
+==========================================================================================
+CONCLUSIONI
+==========================================================================================
+
+Condizione 1 (Dubbio 1, warmup ≈ 0): PASS
+Condizione 2 (Dubbio 2, no edge): verifica visiva delta < 0.5pp per ogni fold/phase.
+
+Se anche Condizione 2 PASS:
+  -> Scenario A pulito confermato
+  -> Procedere con opzione A4 (patch runner + procedere su serie già dumpate)
+  -> Sharpe corretti = quelli ricalcolati sulle serie dumpate

@@ -1,0 +1,102 @@
+==========================================================================================
+TASK 2 — SANITY CHECK v7.3 DSR Bailey-LdP
+==========================================================================================
+
+Caricamento equity CSV...
+  Righe totali: 70,488
+  Colonne: ['trial_id', 'fold_id', 'phase', 'params_json', 'sharpe_a', 'sharpe_flag', 'n_bars', 'n_nonzero_returns', 'date', 'daily_return']
+  Phase counts: {'IS': 56376, 'OOS': 14112}
+
+Caricamento results CSV (best params per fold)...
+  Folds: [1, 2, 3]
+
+  Righe valide (con returns): 70,488
+  Righe sentinella (insufficient_window): 0
+
+==========================================================================================
+BLOCCO 1 — Sharpe ricalcolato vs salvato (tol abs = 1e-4)
+==========================================================================================
+  Trials checked: 432
+  PASS (delta <= 0.0001): 0/432
+  NaN (sr saved o ricalcolato = NaN): 0
+  FAIL (delta > 0.0001): 432
+
+  DETTAGLIO FAIL:
+    trial=  1 fold=1 phase= IS saved=0.974552 recomp=1.594930 delta=6.203778e-01 flag=ok
+    trial=  1 fold=1 phase=OOS saved=1.631676 recomp=3.835987 delta=2.204311e+00 flag=ok
+    trial=  1 fold=2 phase= IS saved=0.492312 recomp=0.786254 delta=2.939421e-01 flag=ok
+    trial=  1 fold=2 phase=OOS saved=1.941470 recomp=4.388680 delta=2.447211e+00 flag=ok
+    trial=  1 fold=3 phase= IS saved=1.494942 recomp=2.037754 delta=5.428121e-01 flag=ok
+    trial=  1 fold=3 phase=OOS saved=0.658351 recomp=1.055329 delta=3.969778e-01 flag=ok
+    trial=  2 fold=1 phase= IS saved=0.974552 recomp=1.594930 delta=6.203778e-01 flag=ok
+    trial=  2 fold=1 phase=OOS saved=1.631676 recomp=3.835987 delta=2.204311e+00 flag=ok
+    trial=  2 fold=2 phase= IS saved=0.492312 recomp=0.786254 delta=2.939421e-01 flag=ok
+    trial=  2 fold=2 phase=OOS saved=1.941470 recomp=4.388680 delta=2.447211e+00 flag=ok
+    trial=  2 fold=3 phase= IS saved=1.494942 recomp=2.037754 delta=5.428121e-01 flag=ok
+    trial=  2 fold=3 phase=OOS saved=0.658351 recomp=1.055329 delta=3.969778e-01 flag=ok
+    trial=  3 fold=1 phase= IS saved=0.988451 recomp=1.627720 delta=6.392686e-01 flag=ok
+    trial=  3 fold=1 phase=OOS saved=1.631676 recomp=3.835987 delta=2.204311e+00 flag=ok
+    trial=  3 fold=2 phase= IS saved=0.492855 recomp=0.787129 delta=2.942737e-01 flag=ok
+    trial=  3 fold=2 phase=OOS saved=1.941470 recomp=4.388680 delta=2.447211e+00 flag=ok
+    trial=  3 fold=3 phase= IS saved=1.418224 recomp=1.886922 delta=4.686979e-01 flag=ok
+    trial=  3 fold=3 phase=OOS saved=0.658351 recomp=1.055329 delta=3.969778e-01 flag=ok
+    trial=  4 fold=1 phase= IS saved=0.988451 recomp=1.627720 delta=6.392686e-01 flag=ok
+    trial=  4 fold=1 phase=OOS saved=1.631676 recomp=3.835987 delta=2.204311e+00 flag=ok
+
+  Delta abs per phase (escluso NaN):
+    IS: n=216 max=7.353e-01 p99=7.353e-01 mean=4.378e-01
+    OOS: n=216 max=2.447e+00 p99=2.447e+00 mean=1.195e+00
+
+==========================================================================================
+BLOCCO 2 — Sharpe per-fold (best params) vs results CSV
+==========================================================================================
+
+  --- Fold 1 ---
+    IS  max SR ricalc = 1.809838  (trial #27)
+    IS  results CSV   = 1.203722
+    IS  delta         = 6.061e-01  FAIL
+    Target params best: {'threshold': 0.25, 'min_concordant': 3, 'target_risk_pct': 0.008, 'max_sector_pct': None, 'max_portfolio_beta': None}
+    OOS trial match: #61 (matches=1)
+    OOS SR ricalc     = 1.330354
+    OOS results CSV   = 0.688004
+    OOS delta         = 6.423e-01  FAIL
+    OOS cum returns (prod) = 3.813290%
+    OOS sum returns        = 3.905723%
+    OOS results PnL pct    = 4.559441%
+    OOS delta PnL (prod-pnl) = 7.462e-01
+
+  --- Fold 2 ---
+    IS  max SR ricalc = 1.688594  (trial #49)
+    IS  results CSV   = 1.108014
+    IS  delta         = 5.806e-01  FAIL
+    Target params best: {'threshold': 0.25, 'min_concordant': 2, 'target_risk_pct': 0.008, 'max_sector_pct': None, 'max_portfolio_beta': None}
+    OOS trial match: #49 (matches=1)
+    OOS SR ricalc     = 4.388680
+    OOS results CSV   = 1.941470
+    OOS delta         = 2.447e+00  FAIL
+    OOS cum returns (prod) = 20.454676%
+    OOS sum returns        = 18.992777%
+    OOS results PnL pct    = 21.262330%
+    OOS delta PnL (prod-pnl) = 8.077e-01
+
+  --- Fold 3 ---
+    IS  max SR ricalc = 2.037754  (trial #1)
+    IS  results CSV   = 1.465066
+    IS  delta         = 5.727e-01  FAIL
+    Target params best: {'threshold': 0.25, 'min_concordant': 2, 'target_risk_pct': 0.008, 'max_sector_pct': 0.3, 'max_portfolio_beta': None}
+    OOS trial match: #51 (matches=1)
+    OOS SR ricalc     = 1.055329
+    OOS results CSV   = 0.658351
+    OOS delta         = 3.970e-01  FAIL
+    OOS cum returns (prod) = 5.076265%
+    OOS sum returns        = 5.464777%
+    OOS results PnL pct    = 7.538742%
+    OOS delta PnL (prod-pnl) = 2.462e+00
+
+==========================================================================================
+SUMMARY TASK 2
+==========================================================================================
+  Sharpe ricalcolato OK: 0/432
+  Sharpe NaN: 0
+  Sharpe FAIL: 432
+  ESITO: ATTENZIONE — alcuni mismatch sopra tol

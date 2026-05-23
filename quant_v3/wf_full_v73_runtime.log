@@ -1,0 +1,89 @@
+Loading 35 ticker bundles from universe 'portfolio'...
+Bundles loaded: 35/35
+Metadata loaded: 35 ticker mapped
+
+Generated 3 fold(s):
+  F1 IS 2024-08-01→2025-08-01 OOS 2025-08-01→2025-11-01
+  F2 IS 2024-11-01→2025-11-01 OOS 2025-11-01→2026-02-01
+  F3 IS 2025-02-01→2026-02-01 OOS 2026-02-01→2026-05-01
+
+Grid preset 'full': 72 combo
+  threshold: [0.15, 0.2, 0.25]
+  min_concordant: [2, 3]
+  target_risk_pct: [0.008, 0.01, 0.012]
+  max_sector_pct: [None, 0.3]
+  max_portfolio_beta: [None, 1.3]
+
+[v7.3 DSR] Equity CSV opened: /tmp/yahoo-proxy-missere/quant_v3/wf_full_v73_equity.csv
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+WALK-FORWARD RESULTS — IS vs OOS per fold
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+Fold  IS period               OOS period               IS Shp  OOS Shp   Degr  IS tr  OOS tr  OOS DD   Flag
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+F1    2024-08-01→2025-08-01   2025-08-01→2025-11-01     1.204    0.688   0.57     10      10   4.82%     ok
+F2    2024-11-01→2025-11-01   2025-11-01→2026-02-01     1.108    1.941   1.75     13      10   3.71%     ok
+F3    2025-02-01→2026-02-01   2026-02-01→2026-05-01     1.465    0.658   0.45     13      12   8.47%     ok
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+BEST PARAMS per fold
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+Fold  max_portfolio_beta max_sector_pct     min_concordant     target_risk_pct    threshold         
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+F1    None               None               3                  0.008              0.25              
+F2    None               None               2                  0.008              0.25              
+F3    None               0.3                2                  0.008              0.25              
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+PARAMETER STABILITY ANALYSIS
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+Fold totali analizzati: 3
+Soglia 'stabile': ≥3/3 fold con stesso valore vincente
+
+Distribuzione valori vincenti per parametro:
+  threshold: 0.25=3
+  min_concordant: 2=2 | 3=1
+  target_risk_pct: 0.008=3
+  max_sector_pct: None=2 | 0.3=1
+  max_portfolio_beta: None=3
+
+✓ Parametri STABILI (almeno 3/3 fold):
+    threshold = 0.25
+    target_risk_pct = 0.008
+    max_portfolio_beta = None
+
+IS Sharpe medio:    1.259
+OOS Sharpe medio:   1.096
+Degradation medio:    0.92  (< 0.3 = overfitting; > 0.7 = molto stabile)
+Overfitting flag count: 0/3
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+Results CSV saved: /tmp/yahoo-proxy-missere/quant_v3/wf_full_v73.csv
+Stability JSON saved: /tmp/yahoo-proxy-missere/quant_v3/wf_full_v73_stability.json
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+TRADE LEDGER — re-run OOS per-fold con best_params
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  Fold 1: re-run OOS 2025-08-01 → 2025-11-01 con params={'threshold': 0.25, 'min_concordant': 3, 'target_risk_pct': 0.008, 'max_sector_pct': None, 'max_portfolio_beta': None}
+    → closed=0, open_at_end=10
+  Fold 2: re-run OOS 2025-11-01 → 2026-02-01 con params={'threshold': 0.25, 'min_concordant': 2, 'target_risk_pct': 0.008, 'max_sector_pct': None, 'max_portfolio_beta': None}
+    → closed=0, open_at_end=10
+  Fold 3: re-run OOS 2026-02-01 → 2026-05-01 con params={'threshold': 0.25, 'min_concordant': 2, 'target_risk_pct': 0.008, 'max_sector_pct': 0.3, 'max_portfolio_beta': None}
+    → closed=2, open_at_end=10
+
+Trade ledger CSV saved: /tmp/yahoo-proxy-missere/quant_v3/wf_full_v73_trades.csv  (rows=32)
+
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+OOS-GRID SCAN — dump serie equity di TUTTI i trial × fold OOS (v7.3 DSR)
+══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+Esecuzione di 72 trial × 3 fold = 216 backtest OOS aggiuntivi.
+  Fold 1 OOS [2025-08-01 → 2025-11-01]: avvio scan di 72 trial...
+  Fold 1 OOS scan completato.
+  Fold 2 OOS [2025-11-01 → 2026-02-01]: avvio scan di 72 trial...
+  Fold 2 OOS scan completato.
+  Fold 3 OOS [2026-02-01 → 2026-05-01]: avvio scan di 72 trial...
+  Fold 3 OOS scan completato.
+
+[v7.3 DSR] Equity CSV closed: wf_full_v73_equity.csv
