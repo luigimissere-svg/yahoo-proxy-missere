@@ -56,7 +56,9 @@ Narrazione corretta v7.3:
 
 ## Predizione DSR rivista
 
-Se la DSR scalare viene calcolata su **tutti i 72 trial × 3 fold = 216 osservazioni OOS** (non solo i 3 best selezionati), la robustezza emerge: la maggior parte dei 216 trial ha sharpe positivo. Il DSR aggregato dovrebbe quindi essere alto (>1.0) indipendentemente dalla scelta del selettore — la diagnostica DSR è proprio per **questo**: validare se il segnale c'è al netto della molteplicità delle scelte.
+La DSR scalare verrà calcolata su **tutti i 216 trial OOS**, ma il numero effettivo di osservazioni indipendenti è molto inferiore: i 72 trial per fold collassano su 8-11 valori IS unici (vedi Test 3) e i 216 trial OOS condividono pesantemente il segnale momentum sottostante. N_eff effettivo stimato 24-50, non 216.
+
+Con correzione Bailey-LdP completa (skew negativa momentum, fat tail dei return, var(SR_hat) cross-trial elevata, SR_0 crescente con N_eff), il DSR aggregato resta plausibilmente in **range [0.5, 1.5]** come da pre-reg outcome. Predizione precedente ">1.0 garantito" ritirata: troppo ottimista. La DSR formale è il test che risponde alla domanda "il segnale è reale al netto della multiplicity?" senza che noi possiamo anticiparla.
 
 ## Azione operativa
 

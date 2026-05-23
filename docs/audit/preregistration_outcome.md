@@ -20,7 +20,7 @@
 | Test | Range atteso | Osservato | Esito |
 |---|---|---|---|
 | F1 OOS sharpe in [no constraint] | — | +2.631 | PASS (informativo) |
-| F2 OOS sharpe in [0.3, 5.0] | [0.3, 5.0] | +3.033 | PASS |
+| F2 OOS sharpe in [0.3, 5.0] | [0.3, 5.0] | +3.033 | PASS (vedi nota) |
 | F3 OOS sharpe in [1.0, 2.0] | [1.0, 2.0] | **−0.110** | **FAIL atteso** (Ipotesi A confermata) |
 
 ### Stop condition full run (sigillo 14:15 messaggio operativo)
@@ -54,7 +54,15 @@ Conferma audit A.0-A.3: i 2 trade F3 pre-roll (~16gg pre-fold, +37%/+46% cattura
 
 ## Verifica patch Bug 7 (factory)
 
-Verificata Step 0 pre-patch (commit 6e80001 contiene `step0_runner_vs_ledger.py`): Δ runner_vs_ledger = 0.0 esatto su F3.
+Verificata Step 0 pre-patch: Δ runner_vs_ledger = 0.0 esatto su F3 (commit 6e80001 contiene `step0_runner_vs_ledger.py`). Conferma che Bug 7 era **dormiente** pre-patch.
+
+**Patch Bug 7 attiva post-refactor**: runner e ledger ora condividono codepath via `make_ledger_runner` thin wrapper di `make_backtest_runner(with_ledger=True)`. Invariante a regime: ogni chiamata futura ritorna lo stesso valore by construction. Verifica post-patch: Δ = 0.0 esatto su F3 (atteso). Il refactor previene divergenze future quando patch successive toccheranno solo una delle due factory.
+
+## Nota onestà epistemica — R1-F2
+
+Il range R1-F2 [0.3, 5.0] era stato calibrato anticipando uno scenario di **diminuzione** del Sharpe F2 (rimozione di MU come trade dominante intra-fold post-Bug 5). Il valore osservato +3.033 è dentro range ma **sul lato opposto rispetto alla direzione attesa** (+1.94 → +3.03, aumento).
+
+Spiegazione: Bug 2 (warmup contamination) deflazionava il Sharpe F2 pre-patch (boost teorico ≈ 2.20×) più di quanto Bug 5 (carry-over MU intra-fold, non cross-fold) lo inflazionasse — net positivo. Il falsificabile formale è passato; la **predizione direzionale ancillare** era sbagliata. Disciplina epistemica: ammesso e registrato.
 
 ## Falsificabili violati — interpretazione
 
