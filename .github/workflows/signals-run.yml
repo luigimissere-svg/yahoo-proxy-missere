@@ -2,7 +2,8 @@ name: Signals v2.0 - Run & Commit
 
 on:
   schedule:
-    # 4 esecuzioni per giorno feriale (orari UTC, mercati EU/US)
+    # 5 esecuzioni per giorno feriale (orari UTC, mercati EU/US)
+    - cron: '25 5 * * 1-5'   # 07:25 CEST - briefing mattutino (5 min prima dell'email)
     - cron: '0 8 * * 1-5'    # 10:00 CEST - apertura EU
     - cron: '0 12 * * 1-5'   # 14:00 CEST - pre apertura US
     - cron: '35 15 * * 1-5'  # 17:35 CEST - post chiusura EU
