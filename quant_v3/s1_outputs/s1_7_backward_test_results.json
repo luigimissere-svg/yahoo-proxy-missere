@@ -1,0 +1,29 @@
+{
+  "sealed_version": "v8.s1.7",
+  "aggregates": [
+    {
+      "params_key": "max_portfolio_beta=None|max_sector_pct=None|min_concordant=2|target_risk_pct=0.008|threshold=0.25",
+      "n_folds": 3,
+      "sharpe_median": 3.08,
+      "sharpe_min": -0.11,
+      "sharpe_max": 3.752,
+      "sharpe_var": 4.257121333333333,
+      "excluded": false,
+      "exclusion_reason": ""
+    },
+    {
+      "params_key": "max_portfolio_beta=None|max_sector_pct=None|min_concordant=3|target_risk_pct=0.008|threshold=0.25",
+      "n_folds": 3,
+      "sharpe_median": 2.631,
+      "sharpe_min": 1.205,
+      "sharpe_max": 3.033,
+      "sharpe_var": 0.9227773333333331,
+      "excluded": false,
+      "exclusion_reason": ""
+    }
+  ],
+  "primary_selection": "max_portfolio_beta=None|max_sector_pct=None|min_concordant=2|target_risk_pct=0.008|threshold=0.25",
+  "guarded_selection": "max_portfolio_beta=None|max_sector_pct=None|min_concordant=3|target_risk_pct=0.008|threshold=0.25",
+  "guarded_reason": "worst_case_guard_triggered(top_min=-0.110<0, chosen_min=1.205)",
+  "verdict": "PASS"
+}

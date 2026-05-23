@@ -1,0 +1,29 @@
+S1.7 Backward Test — Selettore v8 su dati v7.4
+Sealed version: v8.s1.7
+min_tickers usato per backward: 10 (v7.4 non era v8-compliant)
+
+Selector report (v8.s1.7)
+----------------------------------------------------------------------------------------------------
+params_key                                                       med     min     max     var   pnl_m excl
+----------------------------------------------------------------------------------------------------
+max_portfolio_beta=None|max_sector_pct=None|min_concordant=2|target_risk_pct=0.008|threshold=0.25   3.080  -0.110   3.752   4.257    0.00
+max_portfolio_beta=None|max_sector_pct=None|min_concordant=3|target_risk_pct=0.008|threshold=0.25   2.631   1.205   3.033   0.923    0.00
+
+--- Selezione PRIMARIA (max median OOS) ---
+  params: max_portfolio_beta=None|max_sector_pct=None|min_concordant=2|target_risk_pct=0.008|threshold=0.25
+  median=3.080 min=-0.110
+
+--- Selezione con WORST-CASE GUARD ---
+  params: max_portfolio_beta=None|max_sector_pct=None|min_concordant=3|target_risk_pct=0.008|threshold=0.25
+  reason: worst_case_guard_triggered(top_min=-0.110<0, chosen_min=1.205)
+  median=2.631 min=1.205
+
+--- Confronto cross-selector su v7.4 OOS ---
+  Selettore v7.4 (per-fold IS): media OOS = +1.851 (F1+2.631 F2+3.033 F3-0.110)
+  mc=2 globale: media OOS = +2.241
+  mc=3 globale: media OOS = +2.290
+  Selettore v8 (median): sceglie max_portfolio_beta=None|max_sector_pct=None|min_concordant=2|target_risk_pct=0.008|threshold=0.25
+  Selettore v8 (median + worst-case guard): sceglie max_portfolio_beta=None|max_sector_pct=None|min_concordant=3|target_risk_pct=0.008|threshold=0.25
+
+--- Verdetto S1.7 ---
+  PASS: selettore v8 (median + worst-case guard) sceglie mc=3, evitando il disastro F3 di mc=2.
