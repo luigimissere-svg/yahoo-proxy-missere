@@ -1,0 +1,17 @@
+S1.4 Backward Test — Bootstrap permutation F3 (Bug 7)
+Sealed version: v8.s1.4
+H0: SR(mc=3, F3 OOS) = SR(mc=2, F3 OOS)
+Target SR_obs: mc=2 = -0.110, mc=3 = +1.205, Delta = +1.315
+N trade per fold (sealed v7.4): 10
+
+Multi-seed analysis (n_seeds=20, n_perm=5000 cad):
+  Delta_obs (simulated) median: +1.918
+  p_value_two_sided: median=0.0370, IQR=[0.0131, 0.1911]
+  p_value_one_sided: median=0.0186
+
+Falsificazione F3 pre-reg S1.4:
+  verdetto = REJECT_H0
+  p=0.0370 <= 0.05: H0 (no diff) RIFIUTATO. mc=3 OOS sistematicamente >  mc=2 in F3.
+
+Caveat: simulazione proxy del bootstrap reale (no ledger v7.4 individuale).
+Validazione completa rinviata a S2 con dati v8 reali.
