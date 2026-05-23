@@ -1,0 +1,65 @@
+name: Discovery v2 - Daily Shortlist Refresh
+
+on:
+  schedule:
+    # Mar-Ven 05:55 UTC = 07:55 CEST (prima dell'apertura europea)
+    # Refresh veloce dei soli ~150 ticker della shortlist Discovery. Dura ~1 min.
+    - cron: '55 5 * * 2-5'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Motivo del run on-demand'
+        required: false
+        default: 'manual trigger'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: discovery-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout v3-quant-framework branch
+        uses: actions/checkout@v4
+        with:
+          ref: v3-quant-framework
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run shortlist refresh
+        run: |
+          python quant_v3/scripts/refresh_discovery_shortlist.py 2>&1 | tee /tmp/refresh.log
+          if [ ! -s quant_v3/discovery_snapshot.json ]; then
+            echo "::error::Snapshot mancante, refresh fallito"
+            exit 1
+          fi
+          python -c "
+          import json
+          with open('quant_v3/discovery_snapshot.json') as f: d = json.load(f)
+          m = d['_meta']
+          print(f\"refreshed={m.get('last_refresh_count')} failures={m.get('last_refresh_failures')} elapsed={m.get('last_refresh_elapsed_seconds')}s\")
+          print(f\"last_refresh_at={m.get('last_refresh_at')}\")
+          "
+
+      - name: Commit & push refresh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add quant_v3/discovery_snapshot.json
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica al snapshot, skip commit"
+          else
+            REASON="${{ github.event.inputs.reason || 'daily-refresh' }}"
+            git commit -m "discovery: daily shortlist refresh ($REASON) [skip ci]"
+            git push origin v3-quant-framework
+          fi

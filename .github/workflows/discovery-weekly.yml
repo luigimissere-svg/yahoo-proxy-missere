@@ -1,0 +1,68 @@
+name: Discovery v2 - Weekly Full Scan
+
+on:
+  schedule:
+    # Lunedì 06:00 UTC = 08:00 CEST
+    # Scan completo sui 1.010 candidati. Dura ~5 min.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Motivo del run on-demand'
+        required: false
+        default: 'manual trigger'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: discovery-weekly
+  cancel-in-progress: false
+
+jobs:
+  full-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20  # margine ampio se Yahoo è lento
+
+    steps:
+      - name: Checkout v3-quant-framework branch
+        uses: actions/checkout@v4
+        with:
+          ref: v3-quant-framework
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run full Discovery scan
+        run: |
+          python quant_v3/scripts/generate_discovery_snapshot.py --top-n 30 2>&1 | tee /tmp/discovery_run.log
+          if [ ! -s quant_v3/discovery_snapshot.json ]; then
+            echo "::error::Snapshot vuoto, run fallito"
+            exit 1
+          fi
+          python -c "
+          import json
+          with open('quant_v3/discovery_snapshot.json') as f: d = json.load(f)
+          m = d['_meta']
+          print(f\"engine={m.get('engine_version')} scored={m['scored_size']}/{m['candidates_size']} elapsed={m.get('elapsed_seconds')}s\")
+          print(f\"rejected: {m.get('rejected')}\")
+          for r in ('IT','EU','US'):
+              b = d['by_region'][r]
+              print(f\"  {r}: buy={len(b['buy'])} sell={len(b['sell'])} watch={len(b['watch'])}\")
+          "
+
+      - name: Commit & push snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add quant_v3/discovery_snapshot.json
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica al snapshot, skip commit"
+          else
+            REASON="${{ github.event.inputs.reason || 'weekly-scheduled' }}"
+            git commit -m "discovery: weekly full scan ($REASON) [skip ci]"
+            git push origin v3-quant-framework
+          fi
