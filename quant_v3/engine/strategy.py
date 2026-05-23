@@ -97,6 +97,14 @@ class PatrimonioStrategy(bt.Strategy):
         # max_portfolio_beta=None o 0 → disabilita beta cap.
         # Se entrambi None/0, lo step constraint check viene bypassato.
         ('portfolio_constraints', None),   # istanza PortfolioConstraints; se None → no constraints
+        # ── Bug 5 fix (B2 patch 23/05/2026) ──
+        # Gate fold-start: la strategia non emette segnali (né EXIT né BUY) finché
+        # la data corrente del feed primary è < fold_start_dt. Questo previene
+        # apertura di trade durante warmup_calendar_days (pre-roll) che poi
+        # rimangono aperti a cavallo del fold inflazionando metriche e
+        # generando il bias pre-roll documentato in audit Layer 1-2.
+        # None = retro-compatibile, gate disabilitato (legacy v7.2).
+        ('fold_start_dt', None),           # datetime.date | None
     )
 
     # ── Init ─────────────────────────────────────────────────────────────
@@ -320,9 +328,23 @@ class PatrimonioStrategy(bt.Strategy):
     def next(self):
         self.bar_count += 1
 
-        # Warmup
+        # Warmup classico (bar count interno strategia).
         if self.bar_count < self.p.warmup_bars:
             return
+
+        # Bug 5 fix (B2 patch 23/05/2026): gate fold-start.
+        # Anche se warmup_bars è stato superato, blocchiamo qualunque azione
+        # (EXIT, BUY, peak update) finché la data corrente del feed primary
+        # non raggiunge fold_start_dt. Questo elimina i trade pre-roll che
+        # rimanevano aperti a cavallo del fold (MC.PA, BMPS.MI, MU — audit
+        # Layer 1, evidenza empirica 100% sui 2 trade chiusi F3).
+        if self.p.fold_start_dt is not None:
+            try:
+                current_date = self.datas[0].datetime.date(0)
+            except (IndexError, ValueError, AttributeError):
+                current_date = None
+            if current_date is not None and current_date < self.p.fold_start_dt:
+                return
 
         # Regime detection (1 sola lettura VIX per bar)
         vix = self._current_vix()

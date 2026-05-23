@@ -42,6 +42,52 @@ class TradeLedger(bt.Analyzer):
         # trade.price = prezzo medio entry, che da solo non basta a calcolare
         # il notional).
         self._open_state = {}
+        # Bug 4 fix (B2 patch 23/05/2026): mappa data._name → date di apertura
+        # del primo BUY ancora open. Popolata in notify_order su Completed BUY
+        # quando la posizione passa da 0 → size>0. Resettata su Completed SELL
+        # che porta size a 0. Garantisce dt_open valorizzato per le posizioni
+        # ancora aperte a fine fold (snapshot in stop()).
+        self._dt_open_by_data: dict = {}
+
+    def notify_order(self, order):
+        """Cattura dt_open per ogni posizione aperta.
+
+        Bug 4 fix (B2 patch 23/05/2026): notify_trade arriva quando trade.justopened
+        è True ma non espone in modo affidabile la data sul `trade.data`; per gli
+        open_at_end l'apertura veniva persa (dt_open NaT). Usiamo notify_order su
+        order.Completed: quando la posizione raggiunge size != 0 dopo un BUY, la
+        data corrente del feed è dt_open.
+
+        Resettiamo l'entry su Completed che porta la posizione a 0 (chiusura
+        completa). Trade scaling (non previsto nella strategy attuale ma
+        robustezza) viene gestito: se size cambia segno o passa per 0 ed esce,
+        consideriamo nuova apertura.
+        """
+        if order.status != order.Completed:
+            return
+        try:
+            data = order.data
+            name = data._name
+        except Exception:
+            return
+        # Posizione corrente DOPO il completamento dell'ordine.
+        try:
+            pos_size = float(self.strategy.broker.getposition(data).size)
+        except Exception:
+            return
+        if pos_size == 0:
+            # Chiusura completa: rimuovi dt_open cached.
+            self._dt_open_by_data.pop(name, None)
+            return
+        # Posizione open dopo l'esecuzione. Se non avevamo ancora dt_open,
+        # è una nuova apertura: salva la data corrente del feed.
+        if name not in self._dt_open_by_data:
+            try:
+                dt_open = data.datetime.date(0)
+            except Exception:
+                dt_open = None
+            if dt_open is not None:
+                self._dt_open_by_data[name] = dt_open
 
     def notify_trade(self, trade):
         # Cattura lo stato all'apertura del trade. justopened è True solo
@@ -141,9 +187,13 @@ class TradeLedger(bt.Analyzer):
             pnl_unreal = notional_now - notional_open
             pnl_pct = (pnl_unreal / notional_open * 100.0) if notional_open != 0 else 0.0
 
+            # Bug 4 fix: dt_open recuperato dalla cache notify_order; fallback ''.
+            dt_open_cached = self._dt_open_by_data.get(ticker)
+            dt_open_iso = dt_open_cached.isoformat() if dt_open_cached is not None else ''
+
             self._open_snapshot.append({
                 'ticker': ticker,
-                'dt_open': '',
+                'dt_open': dt_open_iso,
                 'dt_close': '',
                 'bars_held': 0,
                 'size': float(pos.size),

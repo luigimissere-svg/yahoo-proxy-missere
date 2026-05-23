@@ -95,9 +95,11 @@ def make_backtest_runner(
     fixed_params: Dict[str, Any],
     warmup_calendar_days: int = 365,
     attach_returns: bool = False,
+    with_ledger: bool = False,
 ):
     """
-    Costruisce una callback `run_backtest(params, start, end) → RunMetrics`.
+    Costruisce una callback `run_backtest(params, start, end) → RunMetrics`
+    (oppure `(RunMetrics, list[dict trade])` se with_ledger=True).
 
     `bundles` è il dict ticker → DataBundle pre-caricato dal data lake.
     `warmup_calendar_days` arretra il feed `fromdate` per dare a backtrader
@@ -111,10 +113,22 @@ def make_backtest_runner(
     warmup_bars espliciti per stabilizzare segnali compositi prima del
     primo trade. Pre-roll richiesto: ≥ 250 business days dal feed start
     al fold IS start.
+
+    Bug 7 fix (B2 patch 23/05/2026): with_ledger=True aggiunge il TradeLedger
+    analyzer e cambia signature di ritorno a (RunMetrics, list[dict]).
+    `make_ledger_runner` è ora un thin wrapper di questa funzione.
+
+    Bug 2 fix (B2 patch 23/05/2026): il calcolo `sharpe_a` ora usa
+    `rets_filtered` con dates in [start_d, end_d], non l'intero vettore
+    del feed che includeva ~262 BD di warmup. Convenzione Opzione A
+    (strict): include il return del primo giorno del fold.
+
+    Bug 5 fix (B2 patch 23/05/2026): `fold_start_dt = start.date()` viene
+    propagato alla strategia per bloccare segnali pre-roll.
     """
     import datetime as _dt
 
-    def run_backtest(params: Dict[str, Any], start: datetime, end: datetime) -> RunMetrics:
+    def run_backtest(params: Dict[str, Any], start: datetime, end: datetime):
         cerebro = bt.Cerebro(stdstats=False)
         cerebro.broker.set_cash(cash)
         cerebro.broker.setcommission(commission=commission)
@@ -161,6 +175,8 @@ def make_backtest_runner(
             if key in params:
                 strat_kwargs[key] = params[key]
         strat_kwargs['portfolio_constraints'] = portfolio_constraints
+        # Bug 5 fix: propaga fold_start_dt come date (Backtrader fornisce date).
+        strat_kwargs['fold_start_dt'] = start.date() if isinstance(start, _dt.datetime) else start
 
         cerebro.addstrategy(PatrimonioStrategy, **strat_kwargs)
 
@@ -187,6 +203,9 @@ def make_backtest_runner(
         )
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='dd')
         cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
+        # Bug 7 fix: ledger opzionale sulla stessa codepath.
+        if with_ledger:
+            cerebro.addanalyzer(TradeLedger, _name='ledger')
 
         try:
             results = cerebro.run()
@@ -195,21 +214,40 @@ def make_backtest_runner(
             import traceback
             logger.warning(f"cerebro.run FAIL params={params}: {e}")
             logger.debug(traceback.format_exc())
-            return RunMetrics.empty()
+            return (RunMetrics.empty(), []) if with_ledger else RunMetrics.empty()
 
         # Cross-check Backtrader (mantenuto solo come sanity, non usato dal driver).
         sharpe_bt_raw = strat.analyzers.sharpe_bt.get_analysis().get('sharperatio')
         sharpe_bt = float(sharpe_bt_raw) if sharpe_bt_raw is not None else 0.0
 
+        # Bug 2 fix (B2 patch 23/05/2026): filtro [start_d, end_d] applicato
+        # PRIMA del calcolo Sharpe. Pre-patch il vettore `rets` conteneva ~262
+        # BD di warmup_calendar_days che diluivano la deviazione standard di un
+        # fattore ~√(n_full/n_eff) sottostimando il Sharpe v7.2.
+        # Convenzione Opzione A: include il return del primo giorno del fold.
         # Ground truth: Sharpe annualizzato calcolato a mano su daily return.
         # Guard clause: se la finestra ha < 20 barre, < 10 ritorni non-zero o
         # std troppo piccola, marca il fold come 'insufficient_window' e ritorna
         # NaN come Sharpe — il driver lo escluderà dalle aggregazioni.
         tr_ana = strat.analyzers.tr.get_analysis()
-        rets = np.array(
-            [r for _, r in sorted(tr_ana.items())],
-            dtype=float,
-        )
+
+        def _to_date(x):
+            if isinstance(x, _dt.datetime):
+                return x.date()
+            if isinstance(x, _dt.date):
+                return x
+            return None
+
+        start_d_filter = _to_date(start)
+        end_d_filter = _to_date(end)
+        rets_pairs = []
+        for d, r in sorted(tr_ana.items()):
+            d_norm = _to_date(d)
+            if d_norm is None or start_d_filter is None or end_d_filter is None:
+                continue
+            if start_d_filter <= d_norm <= end_d_filter:
+                rets_pairs.append((d_norm, float(r)))
+        rets = np.array([r for _, r in rets_pairs], dtype=float)
         n_bars = int(rets.size)
         n_nonzero = int(np.count_nonzero(rets))
         # Std richiede almeno 2 osservazioni; calcola in sicurezza.
@@ -239,34 +277,14 @@ def make_backtest_runner(
         pnl_pct = (final_value / cash - 1.0) * 100.0
 
         # v7.3 DSR: serie giornaliera attaccata su richiesta esplicita.
-        # Filtro: includi nella serie SOLO le barre nel range [start, end]
-        # del fold (la finestra effettiva di valutazione), escludendo le
-        # barre di warmup che il feed ha caricato per minperiod.
-        # Nota: Backtrader TimeReturn analyzer può restituire datetime.date
-        # OPPURE datetime.datetime come chiave a seconda della versione.
-        # Normalizziamo a date per evitare TypeError sul confronto.
+        # Riutilizziamo `rets_pairs` già filtrato a [start_d, end_d] sopra
+        # (Bug 2 fix): la finestra usata per equity CSV è identica a quella
+        # del calcolo Sharpe, garantendo consistenza.
         daily_returns: List[Any] = []
         if attach_returns:
-            def _to_date(x):
-                # datetime.datetime è sottoclasse di datetime.date, quindi
-                # isinstance(dt, date) è True anche per i datetime. Usiamo
-                # type() per distinguere e .date() solo se serve.
-                if isinstance(x, _dt.datetime):
-                    return x.date()
-                if isinstance(x, _dt.date):
-                    return x
-                return None
+            daily_returns = [(d.isoformat(), r) for d, r in rets_pairs]
 
-            start_d = _to_date(start)
-            end_d = _to_date(end)
-            for d, r in sorted(tr_ana.items()):
-                d_norm = _to_date(d)
-                if d_norm is None or start_d is None or end_d is None:
-                    continue
-                if start_d <= d_norm <= end_d:
-                    daily_returns.append((d_norm.isoformat(), float(r)))
-
-        return RunMetrics(
+        metrics = RunMetrics(
             sharpe=float(sharpe),
             sharpe_a=float(sharpe_a),
             pnl_pct=float(pnl_pct),
@@ -279,6 +297,10 @@ def make_backtest_runner(
             n_nonzero_returns=n_nonzero,
             daily_returns=daily_returns,
         )
+        if with_ledger:
+            ledger_data = strat.analyzers.ledger.get_analysis()
+            return metrics, ledger_data.get('trades', [])
+        return metrics
 
     return run_backtest
 
@@ -292,132 +314,38 @@ def make_ledger_runner(
     beta_map_cache: Dict[str, float],
     fixed_params: Dict[str, Any],
     warmup_calendar_days: int = 365,
+    universe: str = 'portfolio',
+    metadata_path: Path = Path('.'),
 ):
     """
-    Variante di make_backtest_runner che ritorna anche il ledger trade-level.
-
-    Identica a `make_backtest_runner` ma con un analyzer `TradeLedger` aggiuntivo
-    e una signature di ritorno che espone i singoli trade. Pensata per il
-    re-run OOS post-selezione, dove servono i ledger per analisi di
-    concentrazione (item consulente v7→v8).
+    Bug 7 fix (B2 patch 23/05/2026): thin wrapper di `make_backtest_runner`
+    con `with_ledger=True`. Tutta la logica (Sharpe, Bug 2 filtro rets, Bug 5
+    gate fold-start) è nell'unica codepath di make_backtest_runner. Questa
+    funzione esiste solo per retro-compatibilità con i call sites che
+    usavano la vecchia signature.
 
     Returns:
         run_with_ledger(params, start, end) → (RunMetrics, list[dict trade])
+
+    Nota: `metadata_path` non era usato neanche nell'implementazione originale
+    pre-refactor (era un parametro ridondante in make_backtest_runner).
+    Mantenuto opzionale per compatibilità; default Path('.') è sicuro perché
+    sector_map e beta_map sono passati già risolti come dict.
     """
-    import datetime as _dt
-
-    def run_with_ledger(params: Dict[str, Any], start: datetime, end: datetime):
-        cerebro = bt.Cerebro(stdstats=False)
-        cerebro.broker.set_cash(cash)
-        cerebro.broker.setcommission(commission=commission)
-
-        feed_from = start - _dt.timedelta(days=warmup_calendar_days)
-        from_str = feed_from.strftime('%Y-%m-%d')
-        to_str = end.strftime('%Y-%m-%d')
-
-        n_added = 0
-        for t in tickers:
-            bundle = bundles.get(t)
-            if bundle is None:
-                continue
-            try:
-                feed = build_feed(bundle, fromdate=from_str, todate=to_str, earnings_window=5)
-                cerebro.adddata(feed, name=t)
-                n_added += 1
-            except Exception:
-                continue
-        if n_added == 0:
-            return RunMetrics.empty(), []
-
-        max_sector_pct = params.get('max_sector_pct', None)
-        max_portfolio_beta = params.get('max_portfolio_beta', None)
-        portfolio_constraints = None
-        if (max_sector_pct is not None and max_sector_pct > 0) or \
-           (max_portfolio_beta is not None and max_portfolio_beta > 0):
-            from engine.constraints import PortfolioConstraints
-            portfolio_constraints = PortfolioConstraints(
-                sector_map=sector_map_cache,
-                beta_map=beta_map_cache,
-                max_sector_pct=max_sector_pct,
-                max_portfolio_beta=max_portfolio_beta,
-                violation_policy='block_new',
-            )
-
-        strat_kwargs = dict(fixed_params)
-        for key in ('threshold', 'min_concordant', 'target_risk_pct'):
-            if key in params:
-                strat_kwargs[key] = params[key]
-        strat_kwargs['portfolio_constraints'] = portfolio_constraints
-
-        cerebro.addstrategy(PatrimonioStrategy, **strat_kwargs)
-
-        cerebro.addanalyzer(
-            bt.analyzers.SharpeRatio,
-            _name='sharpe_bt',
-            riskfreerate=0.0,
-            annualize=True,
-            timeframe=bt.TimeFrame.Days,
-            convertrate=True,
-            factor=252,
-        )
-        cerebro.addanalyzer(
-            bt.analyzers.TimeReturn,
-            _name='tr',
-            timeframe=bt.TimeFrame.Days,
-        )
-        cerebro.addanalyzer(bt.analyzers.DrawDown, _name='dd')
-        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
-        # Trade-level ledger (la ragion d'essere di questa factory).
-        cerebro.addanalyzer(TradeLedger, _name='ledger')
-
-        try:
-            results = cerebro.run()
-            strat = results[0]
-        except Exception as e:
-            logger.warning(f"ledger re-run FAIL params={params}: {e}")
-            return RunMetrics.empty(), []
-
-        # Metriche (stessa logica di make_backtest_runner).
-        sharpe_bt_raw = strat.analyzers.sharpe_bt.get_analysis().get('sharperatio')
-        sharpe_bt = float(sharpe_bt_raw) if sharpe_bt_raw is not None else 0.0
-        tr_ana = strat.analyzers.tr.get_analysis()
-        rets = np.array([r for _, r in sorted(tr_ana.items())], dtype=float)
-        n_bars = int(rets.size)
-        n_nonzero = int(np.count_nonzero(rets))
-        std_rets = float(rets.std(ddof=1)) if n_bars >= 2 else 0.0
-        if n_bars < 20 or n_nonzero < 10 or std_rets < 1e-8:
-            sharpe_a = float('nan')
-            sharpe_flag = 'insufficient_window'
-        else:
-            sharpe_a = float(rets.mean() / std_rets * np.sqrt(252))
-            sharpe_flag = 'ok'
-        sharpe = sharpe_bt / float(np.sqrt(252)) if sharpe_flag == 'ok' else 0.0
-        dd = strat.analyzers.dd.get_analysis().get('max', {}).get('drawdown', 0.0) or 0.0
-        trades_ana = strat.analyzers.trades.get_analysis()
-        total_block = trades_ana.get('total', {}) or {}
-        n_trades = total_block.get('total', 0) or total_block.get('closed', 0) or 0
-        final_value = cerebro.broker.getvalue()
-        pnl_pct = (final_value / cash - 1.0) * 100.0
-
-        metrics = RunMetrics(
-            sharpe=float(sharpe),
-            sharpe_a=float(sharpe_a),
-            pnl_pct=float(pnl_pct),
-            max_dd=float(dd),
-            trades=int(n_trades),
-            final_value=float(final_value),
-            sharpe_bt=float(sharpe_bt),
-            sharpe_flag=sharpe_flag,
-            n_bars=n_bars,
-            n_nonzero_returns=n_nonzero,
-        )
-
-        # Ledger.
-        ledger_data = strat.analyzers.ledger.get_analysis()
-        trades = ledger_data.get('trades', [])
-        return metrics, trades
-
-    return run_with_ledger
+    return make_backtest_runner(
+        bundles=bundles,
+        tickers=tickers,
+        universe=universe,
+        cash=cash,
+        commission=commission,
+        metadata_path=metadata_path,
+        sector_map_cache=sector_map_cache,
+        beta_map_cache=beta_map_cache,
+        fixed_params=fixed_params,
+        warmup_calendar_days=warmup_calendar_days,
+        attach_returns=True,
+        with_ledger=True,
+    )
 
 
 # ─── Pretty print ────────────────────────────────────────────────
