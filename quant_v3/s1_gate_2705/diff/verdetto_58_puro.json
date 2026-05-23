@@ -1,0 +1,82 @@
+{
+  "gate": "27/05 — 58-puro VINCOLANTE",
+  "date_seal": "2026-05-23",
+  "n_months": 58,
+  "metrics": {
+    "mean_disc_pct": 0.3925,
+    "median_disc_pct": 0.396,
+    "max_disc_pct": 0.9862,
+    "min_disc_pct": 0.0,
+    "months_above_1pct": 0
+  },
+  "thresholds": {
+    "snapshot_max_pct": 1.0,
+    "mean_max_pct": 0.5
+  },
+  "verdict": "PASS",
+  "by_year": {
+    "2020": {
+      "n": 8,
+      "mean": 0.4204,
+      "max": 0.789,
+      "min": 0.1984
+    },
+    "2021": {
+      "n": 10,
+      "mean": 0.4346,
+      "max": 0.9843,
+      "min": 0.0
+    },
+    "2022": {
+      "n": 6,
+      "mean": 0.4951,
+      "max": 0.7937,
+      "min": 0.0
+    },
+    "2023": {
+      "n": 9,
+      "mean": 0.2863,
+      "max": 0.5941,
+      "min": 0.0
+    },
+    "2024": {
+      "n": 10,
+      "mean": 0.3369,
+      "max": 0.7905,
+      "min": 0.0
+    },
+    "2025": {
+      "n": 11,
+      "mean": 0.3782,
+      "max": 0.7921,
+      "min": 0.0
+    },
+    "2026": {
+      "n": 4,
+      "mean": 0.4948,
+      "max": 0.9862,
+      "min": 0.1988
+    }
+  },
+  "cluster_2022_alert": false,
+  "cluster_2022_analysis": {
+    "n_months": 6,
+    "mean_disc_pct": 0.4951,
+    "max_disc_pct": 0.7937,
+    "overall_mean": 0.3925,
+    "delta_vs_overall_pct": 0.1026,
+    "ratio_vs_overall": 1.262,
+    "trigger_threshold_ratio": 1.5,
+    "trigger_threshold_abs_excess_pct": 0.5,
+    "signal": false,
+    "interpretation": "Cluster 2022 mostra mean +26% rispetto overall (0.495% vs 0.393%) ma resta entro 1.5× e sotto soglia +0.5% assoluta. No auto-trigger sospensione. Flag deferred-pending-S2 per cross-check supplementare al gate 30/05 con terza fonte (no Wikipedia per vincolo mandato 21:03)."
+  },
+  "deferred_pending_s2": {
+    "flag": true,
+    "items": [
+      "Cluster 2022 (6 mesi Wayback) — verifica con terza fonte non-Wikipedia",
+      "13 mesi DEGRADED_PENDING (N-PORT IVV) — identificazione filing offline batch",
+      "5 mesi NO_COVERAGE — accept as gap permanente o aggiungere fonte alternativa S&P Dow Jones official PIT"
+    ]
+  }
+}
