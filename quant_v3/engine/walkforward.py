@@ -81,6 +81,13 @@ class RunMetrics:
       dati a sufficienza per calcolare uno Sharpe affidabile.
     - I quattro campi diagnostici `n_*` consentono di verificare a posteriori
       condizioni di patologia (finestre troppo corte, troppi zeri).
+
+    DSR Bailey-LdP v7.3 (maggio 2026):
+    - `daily_returns` opzionale: lista di tuple (date_iso_str, return_float)
+      ordinata cronologicamente. Popolata solo quando la factory è chiamata
+      con `attach_returns=True`. Necessaria per costruire la matrice di
+      correlazione fra trial e per il block bootstrap empirico di SR_0
+      sotto il framework DSR formale (item consulente v7.3).
     """
     sharpe: float
     sharpe_a: float
@@ -93,6 +100,8 @@ class RunMetrics:
     sharpe_flag: str = 'ok'
     n_bars: int = 0
     n_nonzero_returns: int = 0
+    # Campi aggiunti v7.3 DSR (attach_returns=True dalla factory).
+    daily_returns: List[Any] = field(default_factory=list)
 
     @staticmethod
     def empty() -> 'RunMetrics':
@@ -107,6 +116,7 @@ class RunMetrics:
             sharpe_flag='insufficient_window',
             n_bars=0,
             n_nonzero_returns=0,
+            daily_returns=[],
         )
 
 
@@ -416,6 +426,11 @@ def aggregate_stability(
 # Signature: run_backtest(params: dict, start: datetime, end: datetime) → RunMetrics
 RunCallback = Callable[[Dict[str, Any], datetime, datetime], RunMetrics]
 
+# Type alias v7.3 DSR: callback per raccogliere serie equity per trial × fold.
+# Signature: equity_collector(trial_idx, fold_id, phase, params, metrics) → None
+# phase ∈ {'IS', 'OOS'}; metrics.daily_returns conterrà la serie.
+EquityCollector = Callable[[int, int, str, Dict[str, Any], RunMetrics], None]
+
 
 def run_walkforward(
     folds: List[Fold],
@@ -424,6 +439,7 @@ def run_walkforward(
     min_trades_per_fold: int = 5,
     tie_break_pct: float = 0.05,
     verbose: bool = True,
+    equity_collector: Optional[EquityCollector] = None,
 ) -> List[FoldResult]:
     """
     Esegue walk-forward completo.
@@ -464,6 +480,15 @@ def run_walkforward(
                 logger.warning(f"  IS combo {i}/{len(combos)} {params} FAIL: {e}")
                 m = RunMetrics.empty()
             is_results.append((params, m))
+            # v7.3 DSR: raccogli la serie IS per matrice di correlazione fra trial.
+            # trial_idx è 1-based (1..N_combo) per coerenza con il display utente.
+            if equity_collector is not None:
+                try:
+                    equity_collector(i, fold.fold_id, 'IS', params, m)
+                except Exception as exc:
+                    logger.warning(
+                        f"  equity_collector IS failed trial={i} fold={fold.fold_id}: {exc}"
+                    )
             if verbose and i % 10 == 0:
                 logger.info(
                     f"  IS progress {i}/{len(combos)} elapsed={time.time()-fold_t0:.0f}s"
