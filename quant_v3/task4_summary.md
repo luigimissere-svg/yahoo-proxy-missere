@@ -114,15 +114,96 @@ DSR = Φ( (SR_hat_daily − SR_0_daily) · √(T−1) / √(1 − γ₁·SR_hat_
 - **Vincolo bilatero rispettato** (entrambi > 0.5; il primario non raggiunge 1.0)
 - Range realistico, niente saturazione CDF sospetta
 
-## Sintesi N_eff IS — input per Task 5/6/7 DSR
+---
 
-- **N_eff primario sigillato** (trace-based, da `decisione_neff_primario.md`):
-  - IS C_mean = **1.1521**
-  - OOS media fold = **1.2231**
-  - **Stima consolidata DSR**: N_eff ≈ **1.188** (media IS+OOS)
+### Preview DSR ricalcolato CONSISTENTE γ per-fold (post-feedback 17:22)
+
+**Critica accolta**: la prima preview usava γ aggregato concatenato con SR_hat best-F1 — mescolanza sottile. Riformulo con consistency completa.
+
+#### Opzione (A) DSR per-fold (sigillata come PRIMARIA)
+
+γ per-fold + SR_hat per-fold + T per-fold + N_eff OOS per-fold (tutti dati fold-locali):
+
+| Fold | SR_hat_d | γ₁     | γ₂_exc | T   | N_eff_OOS | SR_0_d | denom  | z      | **DSR** |
+|------|----------|--------|--------|-----|-----------|--------|--------|--------|----------|
+| F1   | 0.1657   | −0.199 | +0.620 | 66  | 1.1350    | 0.0317 | 1.0184 | +1.061 | **0.856** |
+| F2   | 0.1911   | +0.594 | +1.086 | 65  | 1.1522    | 0.0335 | 0.9468 | +1.331 | **0.908** |
+| F3   | −0.0069 | +0.550 | +2.717 | 65  | 1.3821    | 0.0507 | 1.0019 | −0.460 | **0.323** |
+
+**Sensitivity ex-ante N_eff_IS per fold**:
+
+| Fold | N_eff_IS | SR_0_d_IS | z      | DSR    |
+|------|----------|-----------|--------|--------|
+| F1   | 1.1573   | 0.0341    | +1.042 | 0.851  |
+| F2   | 1.1035   | 0.0280    | +1.378 | 0.916  |
+| F3   | 1.1972   | 0.0378    | −0.357 | 0.361  |
+
+**Lettura**:
+- F1 e F2 sopra 0.85: sistema validato statisticamente
+- F3 sotto 0.5 (0.32 ex-post, 0.36 ex-ante): NON validato — emerge onestamente la negatività OOS
+- F2 più forte per γ₁ positivo (right-skew) che riduce penalty Bailey-LdP
+
+#### Opzione (B) DSR aggregato concatenato (sigillata come SECONDARIA per paper)
+
+Identificati trial_id: F1=t.61, F2=t.61, F3=t.49 (mc/thr=0.25 con msp=None, mpb=None). Serie OOS concatenata 196 bar.
+
+**Statistiche aggregate**:
+- T_agg = 196 bar (66+65+65)
+- mean_daily = 0.000818, std_daily = 0.010995
+- SR_daily_agg = 0.0744 → **SR_annual_agg = 1.182** (consulente predetto 1.185, match a 0.003)
+- γ₁_agg (Joanes-Gill bias-corrected) = 0.487
+- γ₂_excess_agg = **6.337** (più alto del preview 3.146 — valore corretto)
+
+**DSR aggregato**:
+- Denominatore = √(1 − 0.487·0.0744 + 6.337/4·0.0744²) = √0.9726 = 0.9862
+- z_OOS = (0.0744 − 0.0400) · √195 / 0.9862 = **0.488**
+- **DSR aggregato (N_eff OOS) = Φ(0.488) = 0.687**
+- z_IS = (0.0744 − 0.0335) · √195 / 0.9862 = 0.580
+- **DSR aggregato (N_eff IS) = Φ(0.580) = 0.719**
+
+#### Ljung-Box autocorrelazione per fold (bonus diagnostico)
+
+| Fold | Q(10) | p     | acf_lag1 | Esito                          |
+|------|-------|-------|----------|--------------------------------|
+| F1   | 6.78  | 0.747 | −0.104  | No autocorrelazione (T_eff=T)  |
+| F2   | 20.37 | **0.026** | **+0.188** | **AUTOCORR, T_eff < T_nom** |
+| F3   | 8.43  | 0.586 | −0.112  | No autocorrelazione            |
+| Agg  | 14.21 | 0.164 | n/a      | No autocorrelazione            |
+
+**Implicazione F2**: T_eff (AR1 approx Politis) = 65·(1−0.188)/(1+0.188) = **44.4 bar**. DSR F2 scende da 0.908 (T=65) a **0.864 (T_eff=44.4)**. Anche con T_eff F2 resta sopra 0.85 (validato).
+
+#### Sintesi opzione (A) + (B) post-Ljung-Box
+
+| Output | F1 | F2 (T=65) | F2 (T_eff=44) | F3 | Aggregato (B) |
+|--------|-----|-----------|---------------|-----|----------------|
+| DSR ex-post (N_eff OOS) | 0.856 | 0.908 | 0.864 | 0.323 | **0.687** |
+| DSR ex-ante (N_eff IS)  | 0.851 | 0.916 | 0.873 | 0.361 | **0.719** |
+
+**Vincolo bilatero**:
+- F1+F2 PASS in tutti i regimi (>0.5)
+- F3 FAIL in tutti i regimi (<0.5)
+- Aggregato (B) PASS marginale ~0.7 — dragged-down da F3 ma sopra soglia
+
+**Decisioni sigillate** (Task 7 finale):
+- **Output primario paper**: opzione (A) DSR per-fold + segnale F3 fail esplicito
+- **Output secondario paper**: opzione (B) aggregato come "unconditional system DSR"
+- F2 riportata con doppia T (T_nom e T_eff), preferendo T_eff come conservativo
+- Per Task 5 bootstrap: priorità a F1, F2, F3 separati più aggregato
+
+## Sintesi N_eff — input per Task 5/6/7 DSR
+
+- **N_eff primario sigillato per DSR (Task 7)**:
+  - **N_eff = 1.2231** (trace-based su matrice OOS, valore ex-post conservativo)
+  - SR_0_annual = √(2·ln(1.2231)) = **0.6346**
+  - SR_0_daily = 0.6346/√252 = **0.0400**
+- **Sensitivity N_eff IS ex-ante** (riportata in paper come robustness check):
+  - N_eff_IS = 1.1521 (trace-based su C_mean IS)
+  - SR_0_annual = √(2·ln(1.1521)) = **0.5321**
+  - SR_0_daily = 0.5321/√252 = **0.0335**
 - **N_eff secondario** (cluster-count strategie distinte) = 8 (da Task 2c)
-- **SR_0 primario** = √(2·ln(1.188)) ≈ 0.5864
-- **SR_0 secondario** = √(2·ln(8)) ≈ 2.0393
+  - SR_0_annual = √(2·ln(8)) = **2.0393**
+  - SR_0_daily = 2.0393/√252 = **0.1285**
+- **NOTA**: la media IS+OOS 1.188 (riferimento qualitativo) NON è il numero primario; la primaria è OOS 1.2231.
 
 ## Output files
 

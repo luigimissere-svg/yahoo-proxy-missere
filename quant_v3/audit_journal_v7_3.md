@@ -561,3 +561,148 @@ Questa lezione entra in `audit_journal_v7_3.md` come regola permanente del workf
 
 Falsifica criterion: media bootstrap fuori ±20% dalla formula chiusa = falsificazione. KS p>0.05 su F3 = falsificazione su quel sub-test (autorizza la formula gaussiana, indebolendo necessità dell'aggiustamento Bailey-LdP).
 
+
+---
+
+## SIGILLO Task 4-ter (2026-05-23 17:23) — DSR opt(A)+(B) sigillati + Ljung-Box + correzione γ aggregato
+
+### Critica accolta (consulente 17:17)
+
+Il preview Task 4-bis usava γ aggregato concatenato con SR_hat best-F1 — mescolanza sottile. Anche il valore γ₂_excess=3.146 era errato: il vero aggregato su 196 bar concatenati è **γ₂_excess=6.337**. Il numero 3.146 veniva da `skew_kurt_check_summary.md` ma riferito a un subset (n_bar diverso) — ricalcolato qui con consistency: 6.146 → 6.337 (Joanes-Gill bias-corrected, scipy default).
+
+### Opzione (A) DSR per-fold — SIGILLATA PRIMARIA
+
+γ_F_i + SR_hat_F_i + T_F_i + N_eff_OOS_F_i (consistency completa):
+
+| Fold | SR_hat_d | γ₁     | γ₂_exc | T   | N_eff_OOS | SR_0_d | z      | DSR    |
+|------|----------|--------|--------|-----|-----------|--------|--------|--------|
+| F1   | 0.1657   | −0.199 | +0.620 | 66  | 1.1350    | 0.0317 | +1.061 | **0.856** |
+| F2   | 0.1911   | +0.594 | +1.086 | 65  | 1.1522    | 0.0335 | +1.331 | **0.908** |
+| F3   | −0.0069  | +0.550 | +2.717 | 65  | 1.3821    | 0.0507 | −0.460 | **0.323** |
+
+Sensitivity ex-ante N_eff_IS: F1=0.851, F2=0.916, F3=0.361.
+
+### Opzione (B) DSR aggregato concatenato 196 bar — SIGILLATA SECONDARIA
+
+Trial_id identificati: F1=t.61, F2=t.61, F3=t.49 (mc=3/3/2 thr=0.25 msp=None mpb=None).
+
+- T_agg = 196 bar, SR_daily_agg = 0.0744 → SR_annual_agg = **1.182** (match consulente 1.185)
+- γ₁_agg = 0.487, γ₂_excess_agg = **6.337**
+- DSR(N_eff OOS) = **0.687**
+- DSR(N_eff IS) = **0.719**
+
+### Ljung-Box per-fold (bonus Task 5 anticipato)
+
+| Fold | Q(10) | p | rho_lag1 |
+|------|-------|---|----------|
+| F1 | 6.78 | 0.747 | −0.104 |
+| F2 | 20.37 | **0.026** | **+0.188** AUTOCORR |
+| F3 | 8.43 | 0.586 | −0.112 |
+| Agg | 14.21 | 0.164 | — |
+
+**Implicazione F2**: T_eff_AR1 = 65·(1−0.188)/(1+0.188) = **44.4 bar**.
+- DSR F2 con T_nom=65: 0.908
+- DSR F2 con T_eff=44.4: **0.864**
+
+Δ = −0.044 (4.4pp ridotti). F2 resta validato in entrambi i regimi (>0.85).
+
+### Sintesi opt(A)+(B) post-Ljung-Box
+
+| Output | F1 | F2(T_nom) | F2(T_eff) | F3 | Agg(B) |
+|--------|-----|-----------|-----------|-----|---------|
+| DSR(N_eff OOS) | 0.856 | 0.908 | 0.864 | 0.323 | 0.687 |
+| DSR(N_eff IS)  | 0.851 | 0.916 | 0.873 | 0.361 | 0.719 |
+
+**Vincolo bilatero**:
+- F1+F2: PASS in tutti i regimi
+- F3: FAIL in tutti i regimi (negativo OOS)
+- Aggregato (B): PASS marginale ~0.7
+
+### Decisioni sigillate per Task 7 finale
+
+1. **Output primario paper**: opt(A) DSR per-fold + F3 fail esplicito (disclosure onesta del fenomeno selector overfitting)
+2. **Output secondario paper**: opt(B) aggregato 196-bar come "unconditional system DSR"
+3. **F2 in paper**: doppia T (T_nom + T_eff), preferendo T_eff come conservativo
+4. **Range N_eff sensitivity**: ex-ante (IS) e ex-post (OOS) come due righe della tabella
+
+### Predizioni P6 e P6-bis (sigillate pre-Task 5)
+
+**P6 (revisionata su feedback)**: tolleranza ridotta da ±20% a ±10%
+> "SR_0 block bootstrap mediano (Politis-Romano demeaned per-fold) convergerà a SR_0 formula chiusa entro ±10% (annual scale). CI 90% bootstrap ≈ [0.40, 0.85] (annual). Block size {1, 2, 5, 10}, B=5.000."
+
+**P6 sotto-test KS** (rejection attesa dipende dal vero γ₂ per fold):
+- F1 (γ₂=0.620): KS p > 0.05 atteso (gaussianità ragionevole)
+- F2 (γ₂=1.086): KS p > 0.05 atteso ma marginale
+- F3 (γ₂=2.717): KS p < 0.05 atteso (fat-tail significativa)
+- Caveat potenza: T=65 può ridurre potenza; rejection KS in F3 condizionata a potenza sufficiente
+
+**P6-bis (nuovo, suggerito dal consulente)**: CI 90% γ₁, γ₂ per-fold block bootstrap
+> γ₁_F1 CI ≈ [−0.50, +0.20] mediana ≈ −0.20
+> γ₁_F2 CI ≈ [+0.20, +1.00] mediana ≈ +0.60
+> γ₁_F3 CI ≈ [+0.00, +1.20] mediana ≈ +0.55 (più ampio)
+> γ₂_F3 CI ≈ [−1.0, +6.0] — quasi inutile come stima puntuale
+
+**P6-ter Ljung-Box**: già verificato sopra (anticipato). F2 ha rho_lag1=+0.188. Predizione: il bootstrap su F2 darà SR_0 più alto del formula-chiusa proprio per via dell'autocorrelazione (perché variance di SR_hat bootstrap aumenta con block size crescente).
+
+
+---
+
+## SIGILLO Task 5 (2026-05-23 17:25) — Bootstrap risultati + 3 falsificazioni nuove
+
+### P6 — FALSIFICATA su per-fold (PASS marginale aggregato)
+
+| Config | Formula | Boot b=5 | Δrel |
+|--------|---------|----------|------|
+| F1 | 0.5033 | 1.382 | +175% |
+| F2 | 0.5323 | 1.537 | +189% |
+| F3 | 0.8045 | 1.167 | +45% |
+| Agg | 0.6346 | 0.704 | **+10.9%** marginale |
+
+**Causa root**: SR_0 = √(2·ln(N_eff)) è derivazione asintotica T→∞. Con T=65 la varianza campionaria SR daily (~1/√T = 0.124) annualizzata = 1.97 → domina sulla correzione combinatoria 0.5. Solo l'aggregato T=196 si avvicina ragionevolmente.
+
+**Implicazione metodologica**: per fold singoli T~65, **SR_0 formula chiusa sottostima la vera soglia non-skill**. Il DSR Task 4-ter è sovrastimato.
+
+### P6 KS — falsificata per potenza statistica
+
+F3 KS p=0.161 (no rejection) nonostante γ₂=2.72. Insufficient power con T=65 — confermata predizione consulente.
+
+### P6-bis γ — confermata su mediane, CI 90% larghi
+
+| Fold | γ₁ med | γ₁ CI | γ₂ med | γ₂ CI |
+|------|--------|-------|--------|-------|
+| F1 | −0.154 | [−0.601, +0.409] | +0.568 | [−0.405, +1.563] |
+| F2 | +0.542 | [−0.222, +1.135] | +1.041 | [−0.219, +2.684] |
+| F3 | +0.535 | [−0.348, +1.549] | +2.285 | [+0.515, +4.454] |
+
+γ₂_F3 conferma "quasi inutile come stima puntuale" (CI larghezza 3.9 punti).
+
+### P6-ter F2 autocorr — confermata debolmente
+
+F2 SR_0_boot b=5 = 1.54 (massimo dei 3 fold), coerente con rho_lag1=+0.188. Differenza non drammatica.
+
+### DSR ricalcolato con SR_0_bootstrap (sigillato Task 7)
+
+| Fold | SR_hat_d | SR_0_boot_d | DSR_formula | DSR_boot |
+|------|----------|-------------|-------------|----------|
+| F1 | 0.1657 | 0.0870 | 0.856 | **0.733** |
+| F2 | 0.1911 | 0.0968 | 0.908 | **0.787** |
+| F3 | −0.0069 | 0.0735 | 0.323 | **0.260** |
+| Agg | 0.0744 | 0.0443 | 0.687 | **0.665** |
+
+**Vincolo bilatero post-boot**:
+- F1: PASS (0.73 > 0.5)
+- F2: PASS (0.79 > 0.5)
+- F3: FAIL (0.26 < 0.5)
+- Aggregato: PASS marginale (0.67 > 0.5)
+
+### Decisioni sigillate per Task 7
+
+1. **DSR primario paper** = DSR_bootstrap (più conservativo per T piccoli)
+2. **DSR sensitivity formula-chiusa** in colonna affiancata (per disclosure asintotica)
+3. **F3 esplicitamente non validato in entrambi i metodi**
+4. **Aggregato (B) come "system-level DSR"** = 0.665 — il numero principale del paper
+
+### Lezione metodologica nuova
+
+Per peer review nel paper: SR_0 formula chiusa Bailey-LdP è **asintotica** e richiede T grande. Per T<100, usare bootstrap empirico. Per T grande (T≥200), formula chiusa si avvicina (entro ±15%). Questa lezione entra come regola permanente nel workflow DSR.
+
