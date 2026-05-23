@@ -1,0 +1,104 @@
+{
+  "sealed_version": "v8.s1.4-v2",
+  "config": {
+    "n_seeds": 100,
+    "n_perm": 5000,
+    "df_grid": [
+      3,
+      4,
+      5,
+      6
+    ],
+    "n_trades_per_fold": 10,
+    "bar_per_trade": 63,
+    "sigma_d_assumption": 0.012,
+    "sr_mc2_target": -0.11,
+    "sr_mc3_target": 1.205
+  },
+  "summary_by_df": {
+    "3": {
+      "p_two_median": 0.05,
+      "p_two_mean": 0.16371599999999997,
+      "p_two_iqr": [
+        0.008749999999999999,
+        0.27545
+      ],
+      "p_two_ci95": [
+        0.00039000000000000005,
+        0.7593599999999996
+      ],
+      "p_two_pct_below_005": 0.5,
+      "p_two_pct_in_inconclusive": 0.21,
+      "p_two_pct_above_020": 0.29,
+      "p_one_median": 0.0253,
+      "delta_obs_median": 1.9752150377882725
+    },
+    "4": {
+      "p_two_median": 0.1022,
+      "p_two_mean": 0.217636,
+      "p_two_iqr": [
+        0.013850000000000001,
+        0.3589
+      ],
+      "p_two_ci95": [
+        0.00028500000000000004,
+        0.8371549999999995
+      ],
+      "p_two_pct_below_005": 0.39,
+      "p_two_pct_in_inconclusive": 0.24,
+      "p_two_pct_above_020": 0.37,
+      "p_one_median": 0.051199999999999996,
+      "delta_obs_median": 1.6954558167529636
+    },
+    "5": {
+      "p_two_median": 0.1168,
+      "p_two_mean": 0.23100400000000001,
+      "p_two_iqr": [
+        0.01655,
+        0.4049
+      ],
+      "p_two_ci95": [
+        0.00039000000000000005,
+        0.86664
+      ],
+      "p_two_pct_below_005": 0.38,
+      "p_two_pct_in_inconclusive": 0.25,
+      "p_two_pct_above_020": 0.37,
+      "p_one_median": 0.057300000000000004,
+      "delta_obs_median": 1.6501906753765803
+    },
+    "6": {
+      "p_two_median": 0.12,
+      "p_two_mean": 0.23112000000000002,
+      "p_two_iqr": [
+        0.0199,
+        0.39045
+      ],
+      "p_two_ci95": [
+        0.00039000000000000005,
+        0.8632449999999999
+      ],
+      "p_two_pct_below_005": 0.4,
+      "p_two_pct_in_inconclusive": 0.22,
+      "p_two_pct_above_020": 0.38,
+      "p_one_median": 0.0623,
+      "delta_obs_median": 1.613259427513003
+    }
+  },
+  "verdict_by_df": {
+    "3": "REJECT_H0",
+    "4": "INCONCLUSIVE",
+    "5": "INCONCLUSIVE",
+    "6": "INCONCLUSIVE"
+  },
+  "cross_df": {
+    "p_two_median": 0.0963,
+    "p_two_ci95": [
+      0.0002,
+      0.86168
+    ],
+    "delta_obs_median": 1.728878157219695,
+    "verdict": "INCONCLUSIVE",
+    "motivation": "p=0.0963 in (0.05, 0.20]: INCONCLUSIVO"
+  }
+}

@@ -1,0 +1,22 @@
+S1.4-v2 Reopen — Bootstrap permutation F3 (Bug 7)
+Sealed version: v8.s1.4-v2
+n_seeds=100, n_perm=5000, df grid=[3, 4, 5, 6]
+SR target: mc=2 = -0.11, mc=3 = 1.205, Delta = +1.315
+
+Sensitivity per df:
+  df      p_med   p_mean   IC95_low  IC95_high   %≤0.05   %incon        verdict
+  3      0.0500   0.1637     0.0004     0.7594    50.0%    21.0%      REJECT_H0
+  4      0.1022   0.2176     0.0003     0.8372    39.0%    24.0%   INCONCLUSIVE
+  5      0.1168   0.2310     0.0004     0.8666    38.0%    25.0%   INCONCLUSIVE
+  6      0.1200   0.2311     0.0004     0.8632    40.0%    22.0%   INCONCLUSIVE
+
+Cross-df aggregate (400 runs):
+  p_value two-sided median: 0.0963
+  IC95: [0.0002, 0.8617]
+  verdict cross-df: INCONCLUSIVE
+  motivazione: p=0.0963 in (0.05, 0.20]: INCONCLUSIVO
+
+Falsificazione F3 (pre-reg S1.4):
+  Verdetto cross-df: INCONCLUSIVE. Vedi motivazione sopra.
+
+Caveat: test proxy. Validazione definitiva su ledger v8 reale rinviata a S2.
