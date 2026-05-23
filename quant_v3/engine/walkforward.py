@@ -67,17 +67,47 @@ class Fold:
 
 @dataclass
 class RunMetrics:
-    """Output di un singolo backtest (IS o OOS)."""
+    """Output di un singolo backtest (IS o OOS).
+
+    Post-patch bug Sharpe OOS = 1,0000 (maggio 2026):
+    - `sharpe_a` ora contiene lo Sharpe annualizzato calcolato a mano via NumPy
+      su TimeReturn (ground truth), NON più l'output dell'analyzer
+      bt.analyzers.SharpeRatio_A che si era dimostrato numericamente instabile
+      su finestre OOS corte (~63 barre) — collassava a 1,0000 esatto.
+    - `sharpe_bt` è mantenuto come cross-check (output dell'analyzer
+      bt.analyzers.SharpeRatio standard, annualizzato esplicitamente con
+      factor=252). Non usato dal driver, solo per diagnostica.
+    - `sharpe_flag` ('ok' | 'insufficient_window') segnala se la finestra ha
+      dati a sufficienza per calcolare uno Sharpe affidabile.
+    - I quattro campi diagnostici `n_*` consentono di verificare a posteriori
+      condizioni di patologia (finestre troppo corte, troppi zeri).
+    """
     sharpe: float
     sharpe_a: float
     pnl_pct: float
     max_dd: float
     trades: int
     final_value: float
+    # Campi aggiunti post-patch (default safe per back-compat con i test).
+    sharpe_bt: float = 0.0
+    sharpe_flag: str = 'ok'
+    n_bars: int = 0
+    n_nonzero_returns: int = 0
 
     @staticmethod
     def empty() -> 'RunMetrics':
-        return RunMetrics(0.0, 0.0, 0.0, 0.0, 0, 0.0)
+        return RunMetrics(
+            sharpe=0.0,
+            sharpe_a=0.0,
+            pnl_pct=0.0,
+            max_dd=0.0,
+            trades=0,
+            final_value=0.0,
+            sharpe_bt=0.0,
+            sharpe_flag='insufficient_window',
+            n_bars=0,
+            n_nonzero_returns=0,
+        )
 
 
 @dataclass
@@ -96,14 +126,28 @@ class FoldResult:
 
     @property
     def degradation_ratio(self) -> float:
-        """OOS_sharpe / IS_sharpe. < 0.3 = overfitting; > 0.7 = molto stabile."""
+        """OOS_sharpe / IS_sharpe. < 0.3 = overfitting; > 0.7 = molto stabile.
+
+        Ritorna NaN se uno dei due lati è stato marcato 'insufficient_window'
+        (finestra troppo corta o serie degenere), perché il rapporto sarebbe
+        privo di significato statistico.
+        """
+        if (self.is_metrics.sharpe_flag != 'ok'
+                or self.oos_metrics.sharpe_flag != 'ok'):
+            return float('nan')
         if abs(self.is_metrics.sharpe_a) < 1e-9:
             return 0.0
         return self.oos_metrics.sharpe_a / self.is_metrics.sharpe_a
 
     @property
     def overfitting_flag(self) -> bool:
-        """True se OOS sharpe < 0.3 × IS sharpe (con IS positivo)."""
+        """True se OOS sharpe < 0.3 × IS sharpe (con IS positivo).
+
+        Ritorna False se la diagnosi non è calcolabile (fold non valutabile).
+        """
+        if (self.is_metrics.sharpe_flag != 'ok'
+                or self.oos_metrics.sharpe_flag != 'ok'):
+            return False
         if self.is_metrics.sharpe_a <= 0:
             return False  # IS già negativo, non si parla di overfitting
         return self.degradation_ratio < 0.3
@@ -233,8 +277,14 @@ def select_best_params(
         (best_params, best_metrics, n_skipped_min_trades). Tutti None se nessun
         run supera il floor di min_trades.
     """
-    # Filtra per min_trades
-    valid = [(p, m) for p, m in is_results if m.trades >= min_trades]
+    # Filtra per min_trades E per sharpe_flag = 'ok' (post-patch bug Sharpe OOS):
+    # un combo IS con sharpe_a non affidabile non può alimentare il sort della
+    # grid search. Senza questo filtro si rischia di riprodurre lo stesso
+    # difetto che ha invalidato lo snapshot pre-patch.
+    valid = [
+        (p, m) for p, m in is_results
+        if m.trades >= min_trades and m.sharpe_flag == 'ok'
+    ]
     n_skipped = len(is_results) - len(valid)
     if not valid:
         return None, None, n_skipped
@@ -315,20 +365,47 @@ def aggregate_stability(
         if winner[1] >= stable_threshold:
             stable_params[param] = winner[0]
 
-    # Aggregate metrics
-    is_sharpes = [r.is_metrics.sharpe_a for r in results]
-    oos_sharpes = [r.oos_metrics.sharpe_a for r in results]
-    degradations = [r.degradation_ratio for r in results]
-    overfitting_count = sum(1 for r in results if r.overfitting_flag)
+    # Aggregate metrics (post-patch bug Sharpe OOS):
+    # le medie ora sono calcolate SOLO sui fold con sharpe_flag = 'ok' su
+    # entrambi i lati. I fold con finestra OOS insufficiente vengono contati
+    # separatamente in n_folds_insufficient_oos.
+    valid_results = [
+        r for r in results
+        if r.is_metrics.sharpe_flag == 'ok'
+        and r.oos_metrics.sharpe_flag == 'ok'
+    ]
+    n_insufficient_oos = sum(
+        1 for r in results if r.oos_metrics.sharpe_flag != 'ok'
+    )
+    n_insufficient_is = sum(
+        1 for r in results if r.is_metrics.sharpe_flag != 'ok'
+    )
+
+    if valid_results:
+        is_sharpes = [r.is_metrics.sharpe_a for r in valid_results]
+        oos_sharpes = [r.oos_metrics.sharpe_a for r in valid_results]
+        degradations = [r.degradation_ratio for r in valid_results]
+        overfitting_count = sum(1 for r in valid_results if r.overfitting_flag)
+        is_sharpe_mean = sum(is_sharpes) / len(is_sharpes)
+        oos_sharpe_mean = sum(oos_sharpes) / len(oos_sharpes)
+        degradation_mean = sum(degradations) / len(degradations)
+    else:
+        is_sharpe_mean = float('nan')
+        oos_sharpe_mean = float('nan')
+        degradation_mean = float('nan')
+        overfitting_count = 0
 
     return {
         'n_folds': len(results),
+        'n_folds_valid': len(valid_results),
+        'n_folds_insufficient_is': n_insufficient_is,
+        'n_folds_insufficient_oos': n_insufficient_oos,
         'stable_threshold': stable_threshold,
         'param_counts': param_counts,
         'stable_params': stable_params,
-        'is_sharpe_mean': sum(is_sharpes) / len(is_sharpes),
-        'oos_sharpe_mean': sum(oos_sharpes) / len(oos_sharpes),
-        'degradation_mean': sum(degradations) / len(degradations),
+        'is_sharpe_mean': is_sharpe_mean,
+        'oos_sharpe_mean': oos_sharpe_mean,
+        'degradation_mean': degradation_mean,
         'overfitting_count': overfitting_count,
     }
 
@@ -425,12 +502,17 @@ def run_walkforward(
         results.append(fold_result)
 
         if verbose:
+            flag_tag = ''
+            if oos_metrics.sharpe_flag != 'ok':
+                flag_tag = f' ⚠ OOS_{oos_metrics.sharpe_flag.upper()}'
+            elif fold_result.overfitting_flag:
+                flag_tag = ' ⚠ OVERFIT'
             logger.info(
                 f"  {fold} best={best_params} "
                 f"IS_sharpe={best_metrics.sharpe_a:.3f} ({best_metrics.trades}t) "
                 f"OOS_sharpe={oos_metrics.sharpe_a:.3f} ({oos_metrics.trades}t) "
                 f"degradation={fold_result.degradation_ratio:.2f}"
-                f"{' ⚠ OVERFIT' if fold_result.overfitting_flag else ''} "
+                f"{flag_tag} "
                 f"elapsed={time.time()-fold_t0:.0f}s"
             )
 
@@ -456,10 +538,18 @@ def results_to_csv_rows(results: List[FoldResult]) -> List[Dict[str, Any]]:
             'oos_start': r.oos_start,
             'oos_end': r.oos_end,
             'is_sharpe_a': r.is_metrics.sharpe_a,
+            'is_sharpe_bt': r.is_metrics.sharpe_bt,
+            'is_sharpe_flag': r.is_metrics.sharpe_flag,
+            'is_n_bars': r.is_metrics.n_bars,
+            'is_n_nonzero_returns': r.is_metrics.n_nonzero_returns,
             'is_pnl_pct': r.is_metrics.pnl_pct,
             'is_max_dd': r.is_metrics.max_dd,
             'is_trades': r.is_metrics.trades,
             'oos_sharpe_a': r.oos_metrics.sharpe_a,
+            'oos_sharpe_bt': r.oos_metrics.sharpe_bt,
+            'oos_sharpe_flag': r.oos_metrics.sharpe_flag,
+            'oos_n_bars': r.oos_metrics.n_bars,
+            'oos_n_nonzero_returns': r.oos_metrics.n_nonzero_returns,
             'oos_pnl_pct': r.oos_metrics.pnl_pct,
             'oos_max_dd': r.oos_metrics.max_dd,
             'oos_trades': r.oos_metrics.trades,

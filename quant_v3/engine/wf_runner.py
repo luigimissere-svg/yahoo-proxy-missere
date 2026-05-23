@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import backtrader as bt
+import numpy as np
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -161,10 +162,27 @@ def make_backtest_runner(
 
         cerebro.addstrategy(PatrimonioStrategy, **strat_kwargs)
 
-        # Analyzers minimi (Sharpe annualizzato + DD + trades)
-        cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.0,
-                            annualize=True, timeframe=bt.TimeFrame.Days)
-        cerebro.addanalyzer(bt.analyzers.SharpeRatio_A, _name='sharpe_a', riskfreerate=0.0)
+        # Analyzers minimi (Sharpe + DD + trades + TimeReturn per ground truth NumPy).
+        #
+        # POST-PATCH bug Sharpe OOS = 1,0000 (maggio 2026, branch v3-quant-framework):
+        # rimosso bt.analyzers.SharpeRatio_A perché numericamente instabile su
+        # finestre OOS corte (~63 barre). Sostituito con calcolo a mano via NumPy
+        # sul TimeReturn analyzer (ground truth). bt.analyzers.SharpeRatio standard
+        # è mantenuto come cross-check con annualizzazione esplicita.
+        cerebro.addanalyzer(
+            bt.analyzers.SharpeRatio,
+            _name='sharpe_bt',
+            riskfreerate=0.0,
+            annualize=True,
+            timeframe=bt.TimeFrame.Days,
+            convertrate=True,
+            factor=252,
+        )
+        cerebro.addanalyzer(
+            bt.analyzers.TimeReturn,
+            _name='tr',
+            timeframe=bt.TimeFrame.Days,
+        )
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='dd')
         cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
 
@@ -177,8 +195,36 @@ def make_backtest_runner(
             logger.debug(traceback.format_exc())
             return RunMetrics.empty()
 
-        sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio') or 0.0
-        sharpe_a = strat.analyzers.sharpe_a.get_analysis().get('sharperatio') or 0.0
+        # Cross-check Backtrader (mantenuto solo come sanity, non usato dal driver).
+        sharpe_bt_raw = strat.analyzers.sharpe_bt.get_analysis().get('sharperatio')
+        sharpe_bt = float(sharpe_bt_raw) if sharpe_bt_raw is not None else 0.0
+
+        # Ground truth: Sharpe annualizzato calcolato a mano su daily return.
+        # Guard clause: se la finestra ha < 20 barre, < 10 ritorni non-zero o
+        # std troppo piccola, marca il fold come 'insufficient_window' e ritorna
+        # NaN come Sharpe — il driver lo escluderà dalle aggregazioni.
+        tr_ana = strat.analyzers.tr.get_analysis()
+        rets = np.array(
+            [r for _, r in sorted(tr_ana.items())],
+            dtype=float,
+        )
+        n_bars = int(rets.size)
+        n_nonzero = int(np.count_nonzero(rets))
+        # Std richiede almeno 2 osservazioni; calcola in sicurezza.
+        std_rets = float(rets.std(ddof=1)) if n_bars >= 2 else 0.0
+        if n_bars < 20 or n_nonzero < 10 or std_rets < 1e-8:
+            sharpe_a = float('nan')
+            sharpe_flag = 'insufficient_window'
+        else:
+            sharpe_a = float(rets.mean() / std_rets * np.sqrt(252))
+            sharpe_flag = 'ok'
+
+        # Sharpe standard non-annualizzato (lasciato per compatibilità retroattiva
+        # con il campo `sharpe` di RunMetrics; non usato dal driver). Ricavato dallo
+        # stesso analyzer Backtrader, senza annualizzazione — valore puramente
+        # informativo.
+        sharpe = sharpe_bt / float(np.sqrt(252)) if sharpe_flag == 'ok' else 0.0
+
         dd = strat.analyzers.dd.get_analysis().get('max', {}).get('drawdown', 0.0) or 0.0
         trades_ana = strat.analyzers.trades.get_analysis()
         # FIX Fase 4: TradeAnalyzer.closed conta solo i trade chiusi.
@@ -197,6 +243,10 @@ def make_backtest_runner(
             max_dd=float(dd),
             trades=int(n_trades),
             final_value=float(final_value),
+            sharpe_bt=float(sharpe_bt),
+            sharpe_flag=sharpe_flag,
+            n_bars=n_bars,
+            n_nonzero_returns=n_nonzero,
         )
 
     return run_backtest

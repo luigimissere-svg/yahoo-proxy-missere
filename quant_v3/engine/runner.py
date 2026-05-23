@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 
 import backtrader as bt
+import numpy as np
 
 # Importa relativi
 HERE = Path(__file__).resolve().parent
@@ -220,9 +221,20 @@ def run_backtest(args):
     )
 
     # ── Analyzers ─────────────────────────────────────────────────────────
-    cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.0,
-                        annualize=True, timeframe=bt.TimeFrame.Days)
-    cerebro.addanalyzer(bt.analyzers.SharpeRatio_A, _name='sharpe_a', riskfreerate=0.0)
+    # POST-PATCH bug Sharpe OOS = 1,0000 (maggio 2026, branch v3-quant-framework):
+    # rimosso bt.analyzers.SharpeRatio_A per coerenza con wf_runner.py (stesso
+    # difetto su finestre corte). Lo Sharpe annualizzato finale viene calcolato
+    # a mano via NumPy sul TimeReturn analyzer (ground truth); SharpeRatio
+    # standard è mantenuto solo come cross-check.
+    cerebro.addanalyzer(
+        bt.analyzers.SharpeRatio,
+        _name='sharpe_bt',
+        riskfreerate=0.0,
+        annualize=True,
+        timeframe=bt.TimeFrame.Days,
+        convertrate=True,
+        factor=252,
+    )
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='dd')
     cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
@@ -271,13 +283,30 @@ def run_backtest(args):
     print(f"Final value:      {final_value:>15,.2f}")
     print(f"P&L:              {pnl:>+15,.2f}  ({ret_pct:+.2f}%)")
 
-    # Sharpe (annualizzato dal solo Sharpe analyzer with annualize=True)
-    sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio')
-    sharpe_a = strat.analyzers.sharpe_a.get_analysis().get('sharperatio')
-    if sharpe is not None:
-        print(f"Sharpe (annual):  {sharpe:>15.3f}")
-    if sharpe_a is not None and sharpe_a != sharpe:
-        print(f"Sharpe_A:         {sharpe_a:>15.3f}")
+    # Sharpe annualizzato — ground truth via NumPy su TimeReturn (post-patch).
+    tr_ana = strat.analyzers.timereturn.get_analysis()
+    rets = np.array([r for _, r in sorted(tr_ana.items())], dtype=float)
+    n_bars = int(rets.size)
+    n_nonzero = int(np.count_nonzero(rets))
+    std_rets = float(rets.std(ddof=1)) if n_bars >= 2 else 0.0
+    if n_bars < 20 or n_nonzero < 10 or std_rets < 1e-8:
+        sharpe_a = float('nan')
+        sharpe_flag = 'insufficient_window'
+    else:
+        sharpe_a = float(rets.mean() / std_rets * np.sqrt(252))
+        sharpe_flag = 'ok'
+
+    # Cross-check Backtrader (sanity, non usato come metrica primaria).
+    sharpe_bt = strat.analyzers.sharpe_bt.get_analysis().get('sharperatio')
+
+    if sharpe_flag == 'ok':
+        print(f"Sharpe (annual):  {sharpe_a:>15.3f}  [NumPy ground truth]")
+    else:
+        print(f"Sharpe (annual):  {'n/a':>15}  [{sharpe_flag}]")
+    print(f"  bars OOS:       {n_bars:>15d}")
+    print(f"  nonzero rets:   {n_nonzero:>15d}")
+    if sharpe_bt is not None:
+        print(f"  Sharpe BT (xcheck): {sharpe_bt:>11.3f}")
 
     # Drawdown
     dd = strat.analyzers.dd.get_analysis()
