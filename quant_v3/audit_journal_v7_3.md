@@ -483,3 +483,81 @@ Con SR_hat = 2.631 (opt. i, mediana 3 best OOS), T=66, γ1=0.484, γ2excess=3.14
 Entrambi SOPRA le soglie del vincolo bilatero (>1.0 e >0.5 rispettivamente). Sistema preliminarmente validato in entrambi i regimi modellistici.
 
 Caveat: Task 6 ricalcolerà γ per fold con block bootstrap CI 90%; il numero finale può oscillare. Task 5 ricalcolerà SR_0 anche via block bootstrap empirico (non solo formula chiusa) per cross-validazione.
+
+---
+
+## SIGILLO Task 4-bis (2026-05-23 17:17) — Bug DSR preview unit-mixing + correzione
+
+### Bug diagnosticato (su feedback consulente)
+
+Nel sigillo Task 4 (17:08) ho riportato:
+> Adjustment factor ≈ 0.282 / DSR primario ≈ 1.000 (saturazione CDF normale)
+
+Saturazione CDF al 100% è chimicamente impossibile per uno z finito. Indagine:
+
+**Formula errata usata**: `adj_old = sqrt((1 − γ₁·SR_hat + γ₂/4·SR_hat²) / (T−1))` con SR_hat=2.631 (annual), γ₁=0.484 (daily), γ₂=3.146 (daily). Due errori sovrapposti:
+
+1. **Unit-mixing**: SR_hat in scala annuale mescolato con γ₁, γ₂ in scala daily nella stessa espressione. Il termine γ₂·SR_hat² = 0.787·6.92 = 5.44 esplode perché γ₂ è una proprietà DAILY mentre SR² è ANNUALE.
+2. **Posizionamento errato di √(T−1)**: la formula canonica Bailey-LdP 2014 (eq. 11) ha √(T−1) al NUMERATORE come moltiplicatore della differenza SR_hat−SR_0; non come divisore dentro la radice dell'adjustment factor.
+
+### Formula corretta canonica Bailey-LdP 2014 eq. 11
+
+```
+DSR = Φ( (SR̂ − SR_0) · √(T−1) / √(1 − γ₁·SR̂ + (γ₂_excess/4)·SR̂²) )
+```
+
+Vincolo dimensionale obbligatorio: SR̂, SR_0, γ₁, γ₂ TUTTI sulla stessa scala temporale. Scegliamo scala **DAILY** perché γ₁, γ₂ sono calcolati su daily_return (vedi `skew_kurt_check_summary.md`) e T è in bar daily.
+
+### Conversioni daily-scale (sigillate)
+
+| Quantità | Annual | Daily (canonico per formula) |
+|----------|--------|-------------------------------|
+| SR_hat (opt. i) | 2.631 | 2.631/√252 = **0.1657** |
+| SR_0 primario (N_eff OOS) | 0.6346 | 0.6346/√252 = **0.0400** |
+| SR_0 secondario (cluster=8) | 2.0393 | 2.0393/√252 = **0.1285** |
+| SR_0 primario alt (N_eff IS) | 0.5321 | 0.5321/√252 = **0.0335** |
+| γ₁ (daily, già nella scala) | n/a | 0.484 |
+| γ₂_excess (daily, già) | n/a | 3.146 |
+
+### Preview DSR ricalcolato (corretto)
+
+Calcolo con T=66 (OOS F1, scala daily):
+
+- Denominatore (adjustment scala daily): √(1 − 0.484·0.1657 + 3.146/4·0.1657²) = √0.9414 = **0.9703**
+- Numeratore primario: (0.1657 − 0.0400) · √65 = **1.0139** → z_prim = 1.045 → **DSR_prim = 0.852**
+- Numeratore secondario: (0.1657 − 0.1285) · √65 = 0.3005 → z_sec = 0.3097 → **DSR_sec = 0.622**
+
+### Sensitivity ex-ante (N_eff IS) vs ex-post (N_eff OOS) [sigillata]
+
+| Configurazione | N_eff | SR_0_annual | SR_0_daily | z | DSR |
+|----------------|-------|-------------|------------|---|-----|
+| Ex-ante (IS)  | 1.1521 | 0.5321 | 0.0335 | 1.099 | **0.864** |
+| Ex-post (OOS) | 1.2231 | 0.6346 | 0.0400 | 1.045 | **0.852** |
+| Δ              |        |        |        |       | +1.20 pp |
+
+Differenza piccola (1.2 pp), come predetto dal consulente. **Decisione sigillata**: in paper v7.3 riporteremo entrambe come due righe della sensitivity table, indicando ex-post come "primary number" e ex-ante come "robustness check".
+
+### Caveat metodologico aggiunto al paper
+
+Stiamo usando correlazione di **daily returns** OOS come proxy della correlazione tra **SR_hat dei trial candidati** (canone Bailey-LdP). La correlazione di SR è generalmente ≥ della correlazione di returns; quindi la nostra stima N_eff potrebbe essere sottostimata (N_eff vero ≥ N_eff stimato → SR_0 vero ≥ SR_0 stimato → DSR vero ≤ DSR stimato). Effetto direzionale conservativo nel paper: stiamo sovrastimando il DSR.
+
+### Lezione metodologica generale
+
+Prima di ogni formula multi-grandezza:
+1. Documentare unità di misura di ogni input
+2. Verificare consistency dimensionale prima di passare al codice
+3. Confronto sanity: per SR ~2.5 annual e ~50 osservazioni, DSR atteso 0.7-0.95 (sistema "interessante non saturato"). Numero fuori range = bug probabile.
+4. Saturazione CDF >0.99 sempre da scrivere come numero esatto (0.99974), mai come "≈1.000".
+
+Questa lezione entra in `audit_journal_v7_3.md` come regola permanente del workflow DSR.
+
+### Predizione P6 (sigillata pre-Task 5)
+
+> "SR_0 block bootstrap empirico mediano convergerà a SR_0 formula chiusa = 0.6346 (annual) ovvero 0.0400 (daily) entro ±20%. CI 90% atteso ≈ [0.30, 0.95] (annual) / [0.019, 0.060] (daily).
+>
+> KS test contro distribuzione normale formula chiusa mostrerà rejection p<0.05 per fold F3 (γ₂=2.72) ma non per F1 (γ₂=0.62) — block size insensitive a livello {1, 5, 10}.
+>
+> Block size sigillato: {1, 5, 10}, B=10.000 resample, demeaned per-fold (Politis-Romano)."
+
+Falsifica criterion: media bootstrap fuori ±20% dalla formula chiusa = falsificazione. KS p>0.05 su F3 = falsificazione su quel sub-test (autorizza la formula gaussiana, indebolendo necessità dell'aggiustamento Bailey-LdP).
+
