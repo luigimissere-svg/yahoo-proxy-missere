@@ -94,6 +94,7 @@ def make_backtest_runner(
     beta_map_cache: Dict[str, float],
     fixed_params: Dict[str, Any],
     warmup_calendar_days: int = 365,
+    attach_returns: bool = False,
 ):
     """
     Costruisce una callback `run_backtest(params, start, end) → RunMetrics`.
@@ -237,6 +238,34 @@ def make_backtest_runner(
         final_value = cerebro.broker.getvalue()
         pnl_pct = (final_value / cash - 1.0) * 100.0
 
+        # v7.3 DSR: serie giornaliera attaccata su richiesta esplicita.
+        # Filtro: includi nella serie SOLO le barre nel range [start, end]
+        # del fold (la finestra effettiva di valutazione), escludendo le
+        # barre di warmup che il feed ha caricato per minperiod.
+        # Nota: Backtrader TimeReturn analyzer può restituire datetime.date
+        # OPPURE datetime.datetime come chiave a seconda della versione.
+        # Normalizziamo a date per evitare TypeError sul confronto.
+        daily_returns: List[Any] = []
+        if attach_returns:
+            def _to_date(x):
+                # datetime.datetime è sottoclasse di datetime.date, quindi
+                # isinstance(dt, date) è True anche per i datetime. Usiamo
+                # type() per distinguere e .date() solo se serve.
+                if isinstance(x, _dt.datetime):
+                    return x.date()
+                if isinstance(x, _dt.date):
+                    return x
+                return None
+
+            start_d = _to_date(start)
+            end_d = _to_date(end)
+            for d, r in sorted(tr_ana.items()):
+                d_norm = _to_date(d)
+                if d_norm is None or start_d is None or end_d is None:
+                    continue
+                if start_d <= d_norm <= end_d:
+                    daily_returns.append((d_norm.isoformat(), float(r)))
+
         return RunMetrics(
             sharpe=float(sharpe),
             sharpe_a=float(sharpe_a),
@@ -248,6 +277,7 @@ def make_backtest_runner(
             sharpe_flag=sharpe_flag,
             n_bars=n_bars,
             n_nonzero_returns=n_nonzero,
+            daily_returns=daily_returns,
         )
 
     return run_backtest
@@ -506,6 +536,15 @@ def parse_args():
                         "Output: 1 riga per trade chiuso (+ snapshot trade aperti a fine "
                         "finestra OOS) con colonna fold_id. Necessario per analisi di "
                         "concentrazione e falsificazione ipotesi few-winners.")
+    p.add_argument('--save-equity-csv', dest='save_equity_csv', type=str, default=None,
+                   help="Path CSV per dump daily returns equity-curve di TUTTI i trial "
+                        "della grid × tutti i fold, sia in fase IS sia in fase OOS. "
+                        "Output formato lungo: trial_id, fold_id, phase (IS|OOS), "
+                        "params_json, sharpe_a, date, daily_return. Per IS: usa le "
+                        "serie già calcolate nel walk-forward (zero overhead). Per OOS: "
+                        "esegue un OOS-grid scan dedicato (N_grid × N_fold backtest "
+                        "aggiuntivi, ~2-3h per griglia full). Necessario per DSR formale "
+                        "Bailey-LdP con matrice di correlazione (item consulente v7.3).")
     p.add_argument('--data-root', type=str, default=str(ROOT / 'data'))
     p.add_argument('--verbose', action='store_true')
     return p.parse_args()
@@ -588,6 +627,12 @@ def main():
     }
 
     # ── Run WF ───────────────────────────────────────────────────────────
+    # v7.3 DSR: se --save-equity-csv è attivo, abilitiamo attach_returns nella
+    # factory e predisponiamo il CSV append-mode + il collector che intercetta
+    # le serie IS di tutti i trial della grid mentre il walk-forward gira
+    # (zero overhead, riusa le tr_ana già calcolate).
+    attach_returns_flag = bool(args.save_equity_csv)
+
     run_backtest = make_backtest_runner(
         bundles=bundles,
         tickers=list(bundles.keys()),
@@ -598,7 +643,47 @@ def main():
         sector_map_cache=sector_map_cache,
         beta_map_cache=beta_map_cache,
         fixed_params=fixed_params,
+        attach_returns=attach_returns_flag,
     )
+
+    # Equity CSV setup + collector closure.
+    equity_csv_writer = None
+    equity_csv_file = None
+    equity_collector_fn = None
+    if args.save_equity_csv:
+        equity_path = Path(args.save_equity_csv)
+        if not equity_path.is_absolute():
+            equity_path = ROOT / equity_path
+        equity_path.parent.mkdir(parents=True, exist_ok=True)
+        equity_csv_file = equity_path.open('w', newline='', encoding='utf-8')
+        equity_csv_writer = csv.writer(equity_csv_file)
+        equity_csv_writer.writerow([
+            'trial_id', 'fold_id', 'phase', 'params_json',
+            'sharpe_a', 'sharpe_flag', 'n_bars', 'n_nonzero_returns',
+            'date', 'daily_return',
+        ])
+        print(f"\n[v7.3 DSR] Equity CSV opened: {equity_path}")
+
+        def _equity_collector(trial_idx, fold_id, phase, params, metrics):
+            params_repr = json.dumps(params, default=str, sort_keys=True)
+            if not metrics.daily_returns:
+                # Riga sentinella per fold/trial senza serie (insufficient_window)
+                equity_csv_writer.writerow([
+                    trial_idx, fold_id, phase, params_repr,
+                    metrics.sharpe_a, metrics.sharpe_flag,
+                    metrics.n_bars, metrics.n_nonzero_returns,
+                    '', '',
+                ])
+                return
+            for d_iso, ret in metrics.daily_returns:
+                equity_csv_writer.writerow([
+                    trial_idx, fold_id, phase, params_repr,
+                    metrics.sharpe_a, metrics.sharpe_flag,
+                    metrics.n_bars, metrics.n_nonzero_returns,
+                    d_iso, f"{ret:.10f}",
+                ])
+
+        equity_collector_fn = _equity_collector
 
     results = run_walkforward(
         folds=folds,
@@ -607,6 +692,7 @@ def main():
         min_trades_per_fold=args.min_trades,
         tie_break_pct=args.tie_break_pct,
         verbose=args.verbose,
+        equity_collector=equity_collector_fn,
     )
 
     # ── Output ───────────────────────────────────────────────────────────
@@ -720,6 +806,57 @@ def main():
                 w.writerow({k: row.get(k, '') for k in fieldnames})
         print(f"\nTrade ledger CSV saved: {trades_csv_path}  "
               f"(rows={len(all_trades)})")
+
+    # ── v7.3 DSR: OOS grid scan + chiusura equity CSV ─────────────────────────
+    # Quando --save-equity-csv è attivo, il collector ha già dumpato le serie
+    # IS di tutti i trial durante il walk-forward. Ora dobbiamo dumpare anche
+    # le serie OOS di TUTTI i trial (non solo del vincitore di fold) eseguendo
+    # un OOS-grid scan dedicato. Costo: N_grid × N_fold backtest aggiuntivi
+    # (~2-3h per griglia full su 3 fold). Necessario per il block bootstrap
+    # empirico di SR_0 sotto framework DSR Bailey-LdP (item consulente v7.3).
+    if equity_csv_writer is not None:
+        try:
+            from engine.walkforward import expand_grid
+            print("\n" + "═" * 110)
+            print("OOS-GRID SCAN — dump serie equity di TUTTI i trial × fold OOS (v7.3 DSR)")
+            print("═" * 110)
+            combos_all = expand_grid(grid)
+            total_oos_runs = len(combos_all) * len(results)
+            print(
+                f"Esecuzione di {len(combos_all)} trial × {len(results)} fold = "
+                f"{total_oos_runs} backtest OOS aggiuntivi."
+            )
+            for r in results:
+                oos_start_dt = datetime.strptime(r.oos_start, '%Y-%m-%d') \
+                    if isinstance(r.oos_start, str) else r.oos_start
+                oos_end_dt = datetime.strptime(r.oos_end, '%Y-%m-%d') \
+                    if isinstance(r.oos_end, str) else r.oos_end
+                print(f"  Fold {r.fold_id} OOS [{r.oos_start} → {r.oos_end}]: "
+                      f"avvio scan di {len(combos_all)} trial...")
+                for trial_idx, params in enumerate(combos_all, 1):
+                    try:
+                        m_oos = run_backtest(params, oos_start_dt, oos_end_dt)
+                    except Exception as exc:
+                        logger.warning(
+                            f"  OOS-grid trial {trial_idx} fold {r.fold_id} FAIL: {exc}"
+                        )
+                        m_oos = None
+                    if m_oos is None:
+                        continue
+                    try:
+                        equity_collector_fn(trial_idx, r.fold_id, 'OOS', params, m_oos)
+                    except Exception as exc:
+                        logger.warning(
+                            f"  equity_collector OOS trial {trial_idx} fold {r.fold_id} FAIL: {exc}"
+                        )
+                    if args.verbose and trial_idx % 10 == 0:
+                        print(f"    OOS scan fold {r.fold_id}: {trial_idx}/{len(combos_all)}")
+                print(f"  Fold {r.fold_id} OOS scan completato.")
+        finally:
+            if equity_csv_file is not None:
+                equity_csv_file.flush()
+                equity_csv_file.close()
+                print(f"\n[v7.3 DSR] Equity CSV closed: {args.save_equity_csv}")
 
 
 if __name__ == '__main__':
