@@ -1,51 +1,52 @@
 """
-Generate Discovery Snapshot
-============================
+Generate Discovery Snapshot v2 — Motore Quant completo
+=======================================================
 
-Calcola un ranking dei top-N titoli "interessanti" sull'universo allargato
-(USA S&P500 + Europa STOXX600 + Italia FTSE MIB + FTSE Italia Mid Cap),
-escludendo i titoli che l'utente ha già in portafoglio/watchlist.
+Versione 2.0 del generatore Discovery. Applica lo STESSO motore composito dei
+"Segnali del giorno" v2 ai 1.036 titoli dell'universo allargato (escluso il
+portafoglio), producendo uno snapshot con indicatori completi per ogni
+candidato:
 
-Lo score Discovery è una versione semplificata del composite_score del
-motore v2, calcolata in modo autonomo per non dipendere dal motore di
-produzione (che gira separatamente ogni 2 ore sui soli titoli watchlist).
+  - var_pct_24h: variazione % 24h (da last close / prev close)
+  - atr_pct:    Average True Range % (volatilità storica 14gg)
+  - rsi:        RSI 14 Wilder
+  - ma50_dist:  distanza % dal prezzo dalla MA50
+  - vol_z:      volume z-score (oggi vs media 20gg)
+  - rs_delta:   relative strength vs benchmark di regione
+  - composite_score: score finale in range [-10, +10]
+  - action:     etichetta STRONG BUY / BUY / ACCUMULATE / HOLD / MONITOR / REDUCE / STRONG SELL
 
-Componenti dello score Discovery:
-  1. Momentum: variazione % 1 mese vs 3 mesi (trend strength)
-  2. RSI: posizione tra 30-70 = neutral, < 30 = oversold (BUY), > 70 = overbought (SELL)
-  3. Distanza da MA50: posizione relativa al trend di medio periodo
-  4. Volume z-score: anomalia di volume rispetto media 20 giorni
+Differenze chiave vs v1:
+  - v1 usava solo variazione_pct dal endpoint quotes (score in ±1)
+  - v2 fetcha storico 3mo via Yahoo Chart API direttamente (no proxy) per
+    ognuno dei ~1010 candidati e calcola tutti gli indicatori v2
+  - Score range esteso a ±10 per coerenza con Segnali del giorno
+  - Filtri qualitativi: ATR<8% (no volatilità eccessiva), volume
+    mediano 20gg > 100K azioni (no illiquidità), prezzo > 1$ (no penny stock)
 
-Lo score finale è ordinato per "interessanza assoluta" (abs value) e poi
-diviso per direzione (BUY / SELL / WATCH) e regione (US / EU / IT).
+Performance attesa:
+  - ~1010 fetch_hist sequenziali con sleep 0.2s = 10-15 minuti totali
+  - Pensato per cron mensile, non per uso interattivo
 
-Output: quant_v3/discovery_snapshot.json con struttura:
-{
-  "_meta": {generated_at, universe_size, ranking_method, top_n},
-  "by_region": {
-    "US": {"buy": [...], "sell": [...], "watch": [...]},
-    "EU": {...},
-    "IT": {...}
-  },
-  "global_top": [...]  # top 30 assoluti
-}
+Output:
+  quant_v3/discovery_snapshot.json (formato compatibile con DiscoveryBox v1)
 
-Si invoca:
-  python quant_v3/scripts/generate_discovery_snapshot.py [--top-n 30] [--portfolio-csv path]
+Esecuzione:
+  python quant_v3/scripts/generate_discovery_snapshot.py [--top-n 30] [--limit N]
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import math
 import sys
 import time
+import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import mean, stdev, median
 from typing import Any
-from urllib import error as urlerror
-from urllib import request as urlreq
 from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]  # quant_v3/
@@ -53,7 +54,7 @@ UNIVERSE_CSV = ROOT / "data" / "meta" / "universe_extended.csv"
 PORTFOLIO_CSV = ROOT / "data" / "meta" / "universe_portfolio.csv"
 OUT_JSON = ROOT / "discovery_snapshot.json"
 
-YAHOO_PROXY_BASE = "https://project-kn8ir.vercel.app/api"
+YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/"
 
 REGIONS_MAP = {
     "SP500": "US",
@@ -64,15 +65,30 @@ REGIONS_MAP = {
     "PORTFOLIO_MISSERE": "PORTFOLIO",
 }
 
+# Benchmark per regione
+BENCH_US = "^GSPC"     # S&P 500
+BENCH_EU = "^STOXX"    # STOXX Europe 600
+BENCH_IT = "FTSEMIB.MI"  # FTSE MIB
+
+# Filtri qualitativi
+MAX_ATR_PCT = 8.0       # esclude titoli con ATR > 8% (volatilità eccessiva)
+MIN_VOL_MEDIAN = 100000  # esclude titoli con volume mediano 20gg < 100K
+MIN_PRICE_USD = 1.0     # esclude penny stock (in valuta locale, soglia conservativa)
+
+# Rate-limit verso Yahoo Chart API
+SLEEP_BETWEEN_FETCHES = 0.2
+
+
+# ============================================================================
+# Universe + portfolio loading
+# ============================================================================
 
 def load_universe() -> list[dict[str, str]]:
-    """Carica universo allargato da CSV."""
     with open(UNIVERSE_CSV, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
 
 
 def load_portfolio_tickers() -> set[str]:
-    """Carica i ticker che l'utente ha già in portafoglio/watchlist."""
     if not PORTFOLIO_CSV.exists():
         return set()
     with open(PORTFOLIO_CSV, newline="", encoding="utf-8") as f:
@@ -80,9 +96,6 @@ def load_portfolio_tickers() -> set[str]:
 
 
 def region_for(idx_membership: str) -> str:
-    """Mappa indice → regione US/EU/IT."""
-    # Un titolo può appartenere a più indici (es. STOXX600 + FTSE_MIB)
-    # Diamo priorità a IT > EU > US.
     parts = [p.strip() for p in idx_membership.split(";") if p.strip()]
     has_it = any(p in {"FTSE_MIB", "FTSE_ITALIA_MID_CAP"} for p in parts)
     if has_it:
@@ -93,155 +106,424 @@ def region_for(idx_membership: str) -> str:
             return "EU"
         if r == "US":
             return "US"
-    return "EU"  # fallback
+    return "EU"
 
 
-def fetch_history(symbol: str, period: str = "3mo") -> list[dict[str, Any]] | None:
-    """Recupera storico via yahoo-proxy."""
-    qs = urlencode({"symbol": symbol, "period": period, "interval": "1d"})
-    url = f"{YAHOO_PROXY_BASE}/quotes?{qs}"
+def benchmark_for_region(region: str) -> str:
+    if region == "US":
+        return BENCH_US
+    if region == "IT":
+        return BENCH_IT
+    return BENCH_EU
+
+
+# ============================================================================
+# Yahoo Chart API — fetch storico OHLCV
+# ============================================================================
+
+def fetch_hist(symbol: str, range_str: str = "3mo", interval: str = "1d"):
+    """Recupera serie storica OHLCV dal Yahoo Chart API."""
+    url = f"{YAHOO_CHART}{symbol}?range={range_str}&interval={interval}"
     try:
-        req = urlreq.Request(url, headers={"User-Agent": "discovery-bot/1.0"})
-        with urlreq.urlopen(req, timeout=15) as resp:
+        req = urllib.request.Request(url, headers={"User-Agent": "discovery-v2/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        # Lo yahoo-proxy attuale non ha un endpoint storico esplicito,
-        # usiamo l'endpoint history dedicato se esiste, altrimenti compute da
-        # multiple quote — qui assumiamo che ci sia /api/history.
-        if isinstance(data, dict) and "candles" in data:
-            return data["candles"]
+        chart = data.get("chart", {}).get("result", [None])[0]
+        if not chart:
+            return None
+        meta = chart.get("meta", {})
+        timestamps = chart.get("timestamp", [])
+        quote = chart.get("indicators", {}).get("quote", [{}])[0]
+        return {
+            "ts": timestamps,
+            "open": quote.get("open", []),
+            "high": quote.get("high", []),
+            "low": quote.get("low", []),
+            "close": quote.get("close", []),
+            "volume": quote.get("volume", []),
+            "currency": meta.get("currency"),
+            "regular_price": meta.get("regularMarketPrice"),
+            "prev_close": meta.get("chartPreviousClose") or meta.get("previousClose"),
+        }
+    except Exception:
         return None
-    except (urlerror.HTTPError, urlerror.URLError, json.JSONDecodeError, TimeoutError):
+
+
+# ============================================================================
+# Indicatori (clonati da scripts/signals_v2_engine.py)
+# ============================================================================
+
+def compute_var_pct(hist: dict) -> float | None:
+    """Variazione % 24h: last close vs penultimo close della serie.
+
+    NB: Yahoo `chartPreviousClose` è il close del giorno PRIMA dell'inizio del
+    range (3mo fa), quindi non utile. Usiamo sempre closes[-2] → closes[-1].
+    """
+    if not hist:
         return None
-
-
-def fetch_quote_batch(symbols: list[str]) -> dict[str, dict[str, Any]]:
-    """
-    Recupera quote batch via yahoo-proxy. L'endpoint /api/quotes accetta
-    symbols=COMMA_LIST e ritorna {ok, data: {ticker: {price, prev_close, ...}}}.
-    """
-    qs = urlencode({"symbols": ",".join(symbols)})
-    url = f"{YAHOO_PROXY_BASE}/quotes?{qs}"
-    try:
-        req = urlreq.Request(url, headers={"User-Agent": "discovery-bot/1.0"})
-        with urlreq.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return data.get("data", {}) if data.get("ok") else {}
-    except (urlerror.HTTPError, urlerror.URLError, json.JSONDecodeError, TimeoutError) as e:
-        print(f"  ! batch error: {e}", file=sys.stderr)
-        return {}
-
-
-def compute_simple_score(quote: dict[str, Any]) -> dict[str, Any] | None:
-    """
-    Score semplificato basato SOLO sui dati disponibili nel quote endpoint:
-      - variazione % 24h
-      - eventuale momentum implicito
-
-    Per la prima versione di Discovery mensile usiamo questo set ridotto.
-    Future iterazioni: aggiungere RSI, MA50, volume z-score quando il
-    backend espone storico.
-
-    Score in [-1, +1]:
-      - +1.0 = forte BUY (variazione +5% e oltre)
-      - -1.0 = forte SELL (variazione -5% e oltre)
-    """
-    var_pct = quote.get("variazione_pct")
-    if var_pct is None:
+    closes = [c for c in hist["close"] if c is not None]
+    if len(closes) < 2:
         return None
-    # Score lineare clipped a ±1 (var_pct in %, scala 5% → 1.0)
-    score = max(-1.0, min(1.0, var_pct / 5.0))
+    last = closes[-1]
+    prev = closes[-2]
+    if not prev:
+        return None
+    return round(((last - prev) / prev) * 100, 2)
+
+
+def compute_atr_pct(hist: dict, period: int = 14) -> float | None:
+    if not hist or not hist["close"]:
+        return None
+    closes = [c for c in hist["close"] if c is not None]
+    highs = [h for h in hist["high"] if h is not None]
+    lows = [l for l in hist["low"] if l is not None]
+    if len(closes) < period + 1 or len(highs) < period + 1 or len(lows) < period + 1:
+        return None
+    # Allinea le lunghezze (Yahoo a volte ha gap)
+    n = min(len(closes), len(highs), len(lows))
+    closes, highs, lows = closes[-n:], highs[-n:], lows[-n:]
+    trs = []
+    for i in range(1, n):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i-1]),
+            abs(lows[i] - closes[i-1]),
+        )
+        trs.append(tr)
+    if len(trs) < period:
+        return None
+    atr = mean(trs[-period:])
+    last_close = closes[-1]
+    return round((atr / last_close) * 100, 2) if last_close else None
+
+
+def adaptive_thresholds(atr_pct: float | None) -> dict:
+    if atr_pct is None or atr_pct < 0.3:
+        return {
+            "opportunity": -5.0, "caution": -2.0, "rally": 2.0, "momentum": 5.0,
+            "atr_pct": None, "method": "static",
+        }
     return {
-        "composite_score": round(score, 3),
-        "var_pct_24h": round(var_pct, 2),
-        "price": quote.get("price"),
-        "currency": quote.get("currency"),
-        "name_yahoo": quote.get("name"),
+        "opportunity": round(-2.5 * atr_pct, 2),
+        "caution": round(-1.0 * atr_pct, 2),
+        "rally": round(1.0 * atr_pct, 2),
+        "momentum": round(2.5 * atr_pct, 2),
+        "atr_pct": round(atr_pct, 2),
+        "method": "adaptive",
     }
 
 
-def classify_action(score: float) -> str:
-    """Mappa score → action label."""
-    if score >= 0.6:
+def compute_volume_zscore(hist: dict, window: int = 20) -> float | None:
+    if not hist or not hist["volume"]:
+        return None
+    vols = [v for v in hist["volume"] if v is not None and v > 0]
+    if len(vols) < window + 1:
+        return None
+    today = vols[-1]
+    historical = vols[-window-1:-1]
+    mu = mean(historical)
+    sigma = stdev(historical) if len(historical) > 1 else 1
+    if sigma == 0:
+        return None
+    return round((today - mu) / sigma, 2)
+
+
+def median_volume(hist: dict, window: int = 20) -> float | None:
+    if not hist or not hist["volume"]:
+        return None
+    vols = [v for v in hist["volume"] if v is not None and v > 0]
+    if len(vols) < 5:
+        return None
+    return median(vols[-window:])
+
+
+def compute_rsi(hist: dict, period: int = 14) -> float | None:
+    if not hist or not hist["close"]:
+        return None
+    closes = [c for c in hist["close"] if c is not None]
+    if len(closes) < period + 1:
+        return None
+    gains, losses = [], []
+    for i in range(1, len(closes)):
+        diff = closes[i] - closes[i-1]
+        gains.append(max(diff, 0))
+        losses.append(max(-diff, 0))
+    avg_gain = mean(gains[-period:])
+    avg_loss = mean(losses[-period:])
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - 100/(1+rs), 1)
+
+
+def compute_ma_distance(hist: dict, period: int = 50) -> float | None:
+    if not hist or not hist["close"]:
+        return None
+    closes = [c for c in hist["close"] if c is not None]
+    if len(closes) < period:
+        return None
+    ma = mean(closes[-period:])
+    last = closes[-1]
+    if ma == 0:
+        return None
+    return round(((last - ma) / ma) * 100, 2)
+
+
+def mean_reversion_score(rsi: float | None, ma_dist: float | None) -> int | None:
+    if rsi is None or ma_dist is None:
+        return None
+    score = 0
+    if rsi < 30:
+        score += 2
+    elif rsi < 40:
+        score += 1
+    elif rsi > 70:
+        score -= 2
+    elif rsi > 60:
+        score -= 1
+
+    if ma_dist < -10:
+        score += 2
+    elif ma_dist < -5:
+        score += 1
+    elif ma_dist > 15:
+        score -= 2
+    elif ma_dist > 10:
+        score -= 1
+    return score
+
+
+def compute_relative_strength(ticker_var: float | None, bench_var: float | None) -> float | None:
+    if ticker_var is None or bench_var is None:
+        return None
+    return round(ticker_var - bench_var, 2)
+
+
+def classify_signal(var_pct: float | None, thresholds: dict) -> tuple[str, int]:
+    if var_pct is None:
+        return "NEUTRAL", 0
+    if var_pct <= thresholds["opportunity"]:
+        return "OPPORTUNITY", -4
+    if var_pct <= thresholds["caution"]:
+        return "CAUTION", -2
+    if var_pct >= thresholds["momentum"]:
+        return "MOMENTUM", 4
+    if var_pct >= thresholds["rally"]:
+        return "RALLY", 2
+    return "NEUTRAL", 0
+
+
+def composite_score(
+    base_score: int,
+    rs_delta: float | None,
+    mr_score: int | None,
+    vol_z: float | None,
+) -> float:
+    """
+    Score finale composito (range -10 a +10).
+    Versione Discovery: stesso scoring del v2 engine, ma SENZA persistence
+    (non abbiamo storico segnali per i 1010 candidati extra-watchlist).
+    """
+    score = float(base_score)
+    if rs_delta is not None:
+        score += rs_delta * 0.3
+    if mr_score is not None:
+        score += mr_score * 0.5
+    if vol_z is not None:
+        score += vol_z * 0.3
+    return round(max(-10, min(10, score)), 2)
+
+
+def action_label(composite: float) -> str:
+    if composite >= 5:
         return "🟢 STRONG BUY"
-    if score >= 0.25:
+    if composite >= 2:
         return "🟢 BUY"
-    if score >= 0.1:
+    if composite >= 0.5:
         return "↗ ACCUMULATE"
-    if score <= -0.6:
+    if composite <= -5:
         return "🔴 STRONG SELL"
-    if score <= -0.25:
+    if composite <= -2:
         return "🔴 REDUCE"
-    if score <= -0.1:
+    if composite <= -0.5:
         return "↘ MONITOR"
     return "⚪ HOLD"
 
 
-def main(top_n: int = 30, batch_size: int = 50) -> int:
-    print(f"[Discovery] Loading universe from {UNIVERSE_CSV}")
+# ============================================================================
+# Filtri qualitativi
+# ============================================================================
+
+def passes_quality_filters(
+    price: float | None,
+    atr_pct: float | None,
+    vol_median: float | None,
+    currency: str | None,
+) -> tuple[bool, str]:
+    """
+    Ritorna (passed, reason_if_failed).
+    """
+    if price is None:
+        return False, "no_price"
+    # Penny stock: in valute molto deboli (es. yen/lira) la soglia 1.0 è troppo bassa,
+    # ma per US/EUR/GBP è sensata. Per ora applichiamo solo in USD/EUR/GBP/CHF.
+    if currency in ("USD", "EUR", "GBP", "CHF") and price < MIN_PRICE_USD:
+        return False, f"penny_stock_{price}"
+    if atr_pct is not None and atr_pct > MAX_ATR_PCT:
+        return False, f"high_volatility_atr_{atr_pct}"
+    if vol_median is not None and vol_median < MIN_VOL_MEDIAN:
+        return False, f"low_liquidity_vol_{int(vol_median)}"
+    return True, ""
+
+
+# ============================================================================
+# Benchmark cache
+# ============================================================================
+
+def fetch_benchmarks() -> dict[str, float | None]:
+    """Fetch variazione % 24h per i 3 benchmark."""
+    out = {}
+    for region, symbol in [("US", BENCH_US), ("EU", BENCH_EU), ("IT", BENCH_IT)]:
+        print(f"  [bench] Fetch {region} → {symbol}")
+        hist = fetch_hist(symbol, "5d", "1d")
+        var = compute_var_pct(hist) if hist else None
+        out[region] = var
+        print(f"    var: {var}%")
+        time.sleep(SLEEP_BETWEEN_FETCHES)
+    return out
+
+
+# ============================================================================
+# Main
+# ============================================================================
+
+def main(top_n: int = 30, limit: int | None = None) -> int:
+    print(f"[Discovery v2] Loading universe from {UNIVERSE_CSV}")
     universe = load_universe()
     portfolio = load_portfolio_tickers()
     print(f"  Universe: {len(universe)} titoli")
     print(f"  Portfolio (da escludere): {len(portfolio)} titoli")
 
-    # Filtra titoli non in portafoglio
     candidates = [r for r in universe if r["ticker"] not in portfolio]
+    if limit:
+        candidates = candidates[:limit]
+        print(f"  LIMIT attivo: prime {limit} candidati")
     print(f"  Candidati Discovery: {len(candidates)}")
 
-    # Batch fetch quote (50 per volta per non saturare l'API)
-    all_quotes: dict[str, dict[str, Any]] = {}
-    tickers = [r["ticker"] for r in candidates]
-    for i in range(0, len(tickers), batch_size):
-        chunk = tickers[i : i + batch_size]
-        print(f"  Batch {i // batch_size + 1}/{(len(tickers) + batch_size - 1) // batch_size}: {len(chunk)} simboli")
-        quotes = fetch_quote_batch(chunk)
-        all_quotes.update(quotes)
-        time.sleep(0.3)  # rate-limit polite
+    # Fetch benchmark variazioni
+    print(f"\n[1/3] Fetching benchmark variations...")
+    bench_var = fetch_benchmarks()
+    print(f"  Benchmarks: US={bench_var['US']}% EU={bench_var['EU']}% IT={bench_var['IT']}%")
 
-    print(f"  Quote ricevute: {len(all_quotes)}")
+    # Fetch storico per ognuno + calcolo indicatori
+    print(f"\n[2/3] Fetching history + computing indicators for {len(candidates)} candidates...")
+    print(f"  (stimato ~{len(candidates) * (SLEEP_BETWEEN_FETCHES + 0.5) / 60:.1f} min)")
 
-    # Compute score per ciascun candidato
     scored: list[dict[str, Any]] = []
-    for row in candidates:
+    rejected: dict[str, int] = {"no_hist": 0, "no_price": 0, "penny_stock": 0,
+                                "high_volatility": 0, "low_liquidity": 0, "no_var": 0}
+    t0 = time.time()
+
+    for i, row in enumerate(candidates):
         ticker = row["ticker"]
-        q = all_quotes.get(ticker)
-        if not q:
-            continue
-        sc = compute_simple_score(q)
-        if sc is None:
-            continue
         region = region_for(row.get("index_membership", ""))
-        scored.append(
-            {
-                "ticker": ticker,
-                "name": row.get("name") or sc.get("name_yahoo") or ticker,
-                "region": region,
-                "market": row.get("market"),
-                "currency": row.get("currency"),
-                "sector": row.get("sector") or "",
-                "sub_industry": row.get("sub_industry") or "",
-                "headquarters": row.get("headquarters") or "",
-                "index_membership": row.get("index_membership"),
-                "price": sc["price"],
-                "var_pct_24h": sc["var_pct_24h"],
-                "composite_score": sc["composite_score"],
-                "action": classify_action(sc["composite_score"]),
-            }
-        )
 
-    print(f"  Scored: {len(scored)} titoli")
+        # Log progressivo ogni 50
+        if i % 50 == 0:
+            elapsed = time.time() - t0
+            rate = (i + 1) / max(elapsed, 0.1)
+            eta = (len(candidates) - i) / max(rate, 0.01)
+            print(f"  [{i+1}/{len(candidates)}] {ticker:14s} reg={region} | scored={len(scored)} | ETA {eta/60:.1f}min")
 
-    # Ordina per |score| decrescente (interessanza assoluta)
+        hist = fetch_hist(ticker, "3mo", "1d")
+        time.sleep(SLEEP_BETWEEN_FETCHES)
+
+        if not hist:
+            rejected["no_hist"] += 1
+            continue
+
+        price = hist.get("regular_price")
+        if not price:
+            closes = [c for c in hist["close"] if c is not None]
+            price = closes[-1] if closes else None
+
+        currency = hist.get("currency") or row.get("currency")
+
+        var_pct = compute_var_pct(hist)
+        if var_pct is None:
+            rejected["no_var"] += 1
+            continue
+
+        atr_pct = compute_atr_pct(hist)
+        vol_median_val = median_volume(hist)
+
+        # Filtri qualitativi
+        passed, reason = passes_quality_filters(price, atr_pct, vol_median_val, currency)
+        if not passed:
+            if reason.startswith("no_price"):
+                rejected["no_price"] += 1
+            elif reason.startswith("penny_stock"):
+                rejected["penny_stock"] += 1
+            elif reason.startswith("high_volatility"):
+                rejected["high_volatility"] += 1
+            elif reason.startswith("low_liquidity"):
+                rejected["low_liquidity"] += 1
+            continue
+
+        # Indicatori v2 completi
+        thresh = adaptive_thresholds(atr_pct)
+        tag, base_score = classify_signal(var_pct, thresh)
+        vol_z = compute_volume_zscore(hist)
+        rsi = compute_rsi(hist)
+        ma_dist = compute_ma_distance(hist)
+        mr_score = mean_reversion_score(rsi, ma_dist)
+        rs_delta = compute_relative_strength(var_pct, bench_var.get(region))
+        composite = composite_score(base_score, rs_delta, mr_score, vol_z)
+        action = action_label(composite)
+
+        scored.append({
+            "ticker": ticker,
+            "name": row.get("name") or ticker,
+            "region": region,
+            "market": row.get("market"),
+            "currency": currency,
+            "sector": row.get("sector") or "",
+            "sub_industry": row.get("sub_industry") or "",
+            "headquarters": row.get("headquarters") or "",
+            "index_membership": row.get("index_membership"),
+            "price": round(price, 4) if price else None,
+            "var_pct_24h": var_pct,
+            "atr_pct": atr_pct,
+            "rsi": rsi,
+            "ma50_dist": ma_dist,
+            "vol_z": vol_z,
+            "rs_delta": rs_delta,
+            "base_tag": tag,
+            "composite_score": composite,
+            "action": action,
+        })
+
+    elapsed_total = time.time() - t0
+    print(f"\n  Completato in {elapsed_total/60:.1f} min")
+    print(f"  Scored: {len(scored)}")
+    print(f"  Rejected: {rejected}")
+
+    # Ordinamento + segmentazione
+    print(f"\n[3/3] Ranking + segmentation...")
     scored.sort(key=lambda x: abs(x["composite_score"]), reverse=True)
     global_top = scored[:top_n]
 
-    # Raggruppa per regione, separando BUY (score > 0) / SELL (score < 0) / WATCH (vicino 0)
-    by_region: dict[str, dict[str, list]] = {"US": {}, "EU": {}, "IT": {}}
-    for region in by_region:
+    # by_region: BUY (>=2), SELL (<=-2), WATCH (in mezzo ma con abs>=0.5)
+    by_region: dict[str, dict[str, list]] = {}
+    for region in ("US", "EU", "IT"):
         region_list = [s for s in scored if s["region"] == region]
-        buys = sorted([s for s in region_list if s["composite_score"] >= 0.25], key=lambda x: -x["composite_score"])[:top_n]
-        sells = sorted([s for s in region_list if s["composite_score"] <= -0.25], key=lambda x: x["composite_score"])[:top_n]
+        buys = sorted([s for s in region_list if s["composite_score"] >= 2.0],
+                      key=lambda x: -x["composite_score"])[:top_n]
+        sells = sorted([s for s in region_list if s["composite_score"] <= -2.0],
+                       key=lambda x: x["composite_score"])[:top_n]
         watch = sorted(
-            [s for s in region_list if -0.25 < s["composite_score"] < 0.25 and abs(s["composite_score"]) >= 0.1],
+            [s for s in region_list
+             if -2.0 < s["composite_score"] < 2.0 and abs(s["composite_score"]) >= 0.5],
             key=lambda x: -abs(x["composite_score"]),
         )[:top_n]
         by_region[region] = {"buy": buys, "sell": sells, "watch": watch}
@@ -250,12 +532,21 @@ def main(top_n: int = 30, batch_size: int = 50) -> int:
         "_meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "generator": "quant_v3/scripts/generate_discovery_snapshot.py",
+            "engine_version": "2.0",
             "universe_size": len(universe),
             "portfolio_size": len(portfolio),
             "candidates_size": len(candidates),
             "scored_size": len(scored),
+            "rejected": rejected,
+            "elapsed_seconds": round(elapsed_total, 1),
+            "benchmark_variations": bench_var,
             "top_n": top_n,
-            "ranking_method": "simple_var_pct_24h_v1",
+            "ranking_method": "composite_score_v2_full",
+            "filters": {
+                "max_atr_pct": MAX_ATR_PCT,
+                "min_vol_median": MIN_VOL_MEDIAN,
+                "min_price_strong_currencies": MIN_PRICE_USD,
+            },
             "next_revalidation_due": (
                 datetime.now(timezone.utc).replace(day=1).isoformat()
             ),
@@ -267,17 +558,34 @@ def main(top_n: int = 30, batch_size: int = 50) -> int:
     with open(OUT_JSON, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, ensure_ascii=False, indent=2)
 
-    print(f"[Discovery] Snapshot scritto su {OUT_JSON}")
+    print(f"\n[Discovery v2] Snapshot scritto su {OUT_JSON}")
     print(f"  global_top: {len(global_top)}")
-    print(f"  US: buy={len(by_region['US']['buy'])} sell={len(by_region['US']['sell'])} watch={len(by_region['US']['watch'])}")
-    print(f"  EU: buy={len(by_region['EU']['buy'])} sell={len(by_region['EU']['sell'])} watch={len(by_region['EU']['watch'])}")
-    print(f"  IT: buy={len(by_region['IT']['buy'])} sell={len(by_region['IT']['sell'])} watch={len(by_region['IT']['watch'])}")
+    for region in ("US", "EU", "IT"):
+        b = by_region[region]
+        print(f"  {region}: buy={len(b['buy'])} sell={len(b['sell'])} watch={len(b['watch'])}")
+
+    # Top 10 preview
+    print(f"\n{'=' * 72}")
+    print("TOP 10 DISCOVERY (per |composite_score|)")
+    print(f"{'=' * 72}")
+    print(f"{'Ticker':<14s} {'Reg':<4s} {'Var%':>7s} {'RSI':>5s} {'ATR%':>6s} {'Score':>7s} {'Action':<20s}")
+    print("-" * 72)
+    for r in scored[:10]:
+        ticker = r["ticker"]
+        reg = r["region"]
+        var = r["var_pct_24h"]
+        rsi = r["rsi"] if r["rsi"] is not None else 0
+        atr = r["atr_pct"] or 0
+        score = r["composite_score"]
+        action = r["action"][:18]
+        print(f"{ticker:<14s} {reg:<4s} {var:>+7.2f} {rsi:>5.1f} {atr:>6.2f} {score:>+7.2f} {action:<20s}")
+
     return 0
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--top-n", type=int, default=30)
-    ap.add_argument("--batch-size", type=int, default=50)
+    ap.add_argument("--top-n", type=int, default=30, help="Numero top candidati per segmento")
+    ap.add_argument("--limit", type=int, default=None, help="Limite candidati (per test)")
     args = ap.parse_args()
-    sys.exit(main(top_n=args.top_n, batch_size=args.batch_size))
+    sys.exit(main(top_n=args.top_n, limit=args.limit))
