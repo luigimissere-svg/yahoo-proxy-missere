@@ -56,6 +56,17 @@ def build_snapshot(results_csv: Path, stability_json: Path, active_params_json: 
     # Folds detail: 1 record per fold con best params + metriche
     folds = []
     for _, row in df.sort_values('fold_id').iterrows():
+        # Helper per leggere colonne opzionali (post-patch bug Sharpe OOS):
+        # sui CSV generati prima della patch i campi diagnostici non esistono.
+        def _opt_float(col, r=row):
+            return _safe_float(r[col]) if col in r.index else None
+
+        def _opt_int(col, r=row):
+            return int(r[col]) if col in r.index and not pd.isna(r[col]) else None
+
+        def _opt_str(col, default=None, r=row):
+            return _safe_str(r[col]) if col in r.index else default
+
         folds.append({
             'fold_id': int(row['fold_id']),
             'is_start': _safe_str(row['is_start']),
@@ -64,6 +75,15 @@ def build_snapshot(results_csv: Path, stability_json: Path, active_params_json: 
             'oos_end': _safe_str(row['oos_end']),
             'is_sharpe': _safe_float(row['is_sharpe_a']),
             'oos_sharpe': _safe_float(row['oos_sharpe_a']),
+            # POST-PATCH bug Sharpe OOS = 1,0000: campi diagnostici nuovi.
+            'is_sharpe_bt': _opt_float('is_sharpe_bt'),
+            'oos_sharpe_bt': _opt_float('oos_sharpe_bt'),
+            'is_sharpe_flag': _opt_str('is_sharpe_flag', 'ok'),
+            'oos_sharpe_flag': _opt_str('oos_sharpe_flag', 'ok'),
+            'is_n_bars': _opt_int('is_n_bars'),
+            'oos_n_bars': _opt_int('oos_n_bars'),
+            'is_n_nonzero_returns': _opt_int('is_n_nonzero_returns'),
+            'oos_n_nonzero_returns': _opt_int('oos_n_nonzero_returns'),
             'degradation_ratio': _safe_float(row['degradation_ratio']),
             'overfitting_flag': bool(row['overfitting_flag']),
             'is_pnl_pct': _safe_float(row['is_pnl_pct']),
@@ -110,6 +130,10 @@ def build_snapshot(results_csv: Path, stability_json: Path, active_params_json: 
         },
         'aggregate': {
             'n_folds': stability['n_folds'],
+            # POST-PATCH bug Sharpe OOS = 1,0000: campi diagnostici aggregati.
+            'n_folds_valid': stability.get('n_folds_valid', stability['n_folds']),
+            'n_folds_insufficient_is': stability.get('n_folds_insufficient_is', 0),
+            'n_folds_insufficient_oos': stability.get('n_folds_insufficient_oos', 0),
             'is_sharpe_mean': _safe_float(stability['is_sharpe_mean']),
             'oos_sharpe_mean': _safe_float(stability['oos_sharpe_mean']),
             'degradation_mean': _safe_float(stability['degradation_mean']),
@@ -159,11 +183,17 @@ def main():
         json.dump(snap, f, indent=2, ensure_ascii=False)
 
     print(f"[generate_wf_snapshot] ✓ Written {output} ({output.stat().st_size} bytes)")
-    print(f"  Folds: {snap['aggregate']['n_folds']}")
-    print(f"  IS Sharpe mean: {snap['aggregate']['is_sharpe_mean']:.3f}")
-    print(f"  OOS Sharpe mean: {snap['aggregate']['oos_sharpe_mean']:.3f}")
-    print(f"  Degradation: {snap['aggregate']['degradation_mean']:.3f}")
-    print(f"  Overfitting: {snap['aggregate']['overfitting_count']}/{snap['aggregate']['n_folds']}")
+    agg = snap['aggregate']
+    print(f"  Folds: {agg['n_folds']}  (valid={agg.get('n_folds_valid')}, "
+          f"insufficient OOS={agg.get('n_folds_insufficient_oos')})")
+
+    def _fmt(v):
+        return f"{v:.3f}" if isinstance(v, (int, float)) and v == v else 'n/a'
+
+    print(f"  IS Sharpe mean:  {_fmt(agg['is_sharpe_mean'])}")
+    print(f"  OOS Sharpe mean: {_fmt(agg['oos_sharpe_mean'])}")
+    print(f"  Degradation:    {_fmt(agg['degradation_mean'])}")
+    print(f"  Overfitting: {agg['overfitting_count']}/{agg['n_folds']}")
 
 
 if __name__ == '__main__':
