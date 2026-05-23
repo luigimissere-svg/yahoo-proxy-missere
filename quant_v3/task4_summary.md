@@ -1,0 +1,87 @@
+# Task 4 — N_eff IS multi-metodo + verifica P5
+
+_Generated: 2026-05-23T17:10:51.231553+02:00_
+
+## Predizione sigillata pre-calcolo (P5)
+
+> N_eff IS trace-based convergerà a N_eff OOS Task 2c entro ±5%. Predizione puntuale: N_eff IS ∈ [1.05, 1.20].
+
+## Metodo 1 — N_eff trace-based (PRIMARIO sigillato)
+
+Formula: `N_eff = (Σλ)² / Σλ²` (participation ratio degli autovalori di C)
+
+| Fold | N_eff_trace IS | ρ̄_IS    |
+|------|----------------|----------|
+| 1    | **1.1573**   | 0.9270 |
+| 2    | **1.1035**   | 0.9506 |
+| 3    | **1.1972**   | 0.9103 |
+| **C_mean** | **1.1521** | 0.9293 |
+
+## Metodo 2 — N_eff off-diagonal (constant-correlation)
+
+Formula: `N_eff = N / (1 + (N-1) ρ̄)`
+
+| Fold | N_eff_offdiag IS | ρ̄      |
+|------|------------------|---------|
+| 1    | 1.0776    | 0.9270 |
+| 2    | 1.0512    | 0.9506 |
+| 3    | 1.0970    | 0.9103 |
+| **C_mean** | 1.0749 | 0.9293 |
+
+## Metodo 3 — N_eff RMT (n_spike Marchenko-Pastur)
+
+| Fold | n_spike | N_eff_RMT |
+|------|---------|-----------|
+| 1    | 2 | 2.0 |
+| 2    | 1 | 1.0 |
+| 3    | 2 | 2.0 |
+
+## Metodo 4 — Frobenius cross-fold (stabilità)
+
+| Coppia    | ||ΔC||_F | Rel (%) |
+|-----------|---------|---------|
+| F1-F2 | 2.6526 | 3.96% |
+| F1-F3 | 1.7914 | 2.68% |
+| F2-F3 | 4.0128 | 5.85% |
+
+Tutte le distanze <6%: struttura correlazione molto stabile cross-fold.
+
+## VERIFICA P5 — IS vs OOS trace-based per fold
+
+| Fold | N_eff_IS | N_eff_OOS | Δrel % | Entro ±5%? |
+|------|----------|-----------|--------|--------------|
+| 1    | 1.1573   | 1.1350    | -1.93% | PASS |
+| 2    | 1.1035   | 1.1522    | +4.42% | PASS |
+| 3    | 1.1972   | 1.3821    | +15.44% | FAIL |
+
+**Aggregato**: N_eff IS (C_mean) = **1.1521** vs N_eff OOS (media fold) = **1.2231**
+  → Δrel = +6.16%  → **FAIL ±5%**
+
+### Esito predizione P5
+
+**P5 FALSIFICATA in aggregato (+6.16% > ±5%) e su F3 (+15.44%).**
+
+Dettaglio: PASS su F1 (−1.93%) e F2 (+4.42%), FAIL su F3 (+15.44%) e aggregato.
+
+**Causa root**: F3 OOS ha ρ̄=0.832 vs F3 IS ρ̄=0.910 (drop −8.4 punti). Coerente con il fenomeno selector overfitting già documentato in `journal_f3_selector_overfitting.md`: in F3 OOS i cluster mc=2 e mc=3 divergono performance-wise (mc=2 negativa, mc=3 positiva), aumentando dispersione → ρ̄ scende → N_eff sale. In F1+F2 i cluster restano coerenti tra IS e OOS, quindi ρ̄ resta stabile.
+
+**Lezione operativa**: la stabilità della struttura di correlazione tra IS e OOS dipende dalla stabilità della performance dei cluster strategici sottostanti. Quando il selettore sceglie un sub-ottimo (F3), aumenta la divergenza cross-cluster in OOS, aumentando N_eff. È interpretabile come **"overfitting cost sulla scala N_eff"**, non solo sulla scala Sharpe.
+
+**Conseguenza DSR** (sigillata): per Task 7 useremo come N_eff il valore **OOS aggregato 1.223** (più conservativo, +6% rispetto a IS 1.152), per non sottostimare la correzione DSR.
+
+**Disclosure paper v7.3**: P5 nel registro disclosure come falsificazione parziale (F1+F2 PASS, F3 FAIL). La causa identificata collega P5 al fenomeno selector overfitting di F3.
+
+## Sintesi N_eff IS — input per Task 5/6/7 DSR
+
+- **N_eff primario sigillato** (trace-based, da `decisione_neff_primario.md`):
+  - IS C_mean = **1.1521**
+  - OOS media fold = **1.2231**
+  - **Stima consolidata DSR**: N_eff ≈ **1.188** (media IS+OOS)
+- **N_eff secondario** (cluster-count strategie distinte) = 8 (da Task 2c)
+- **SR_0 primario** = √(2·ln(1.188)) ≈ 0.5864
+- **SR_0 secondario** = √(2·ln(8)) ≈ 2.0393
+
+## Output files
+
+- `task4_neff_is.py` (script)
+- `/home/user/workspace/task4_summary.md` (questo file)

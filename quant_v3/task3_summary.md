@@ -63,13 +63,28 @@ Un singolo "fattore comune" assorbe 91-95% della varianza totale in tutti i fold
 | Fold | N_eff_trace(C) | N_eff_LW_equiv | n_spike(RMT) |
 |------|----------------|----------------|--------------|
 | 1    | 1.157          | 2.983          | 2            |
-| 2    | 1.103          | 72.000         | 1            |
+| 2    | 1.103          | N/A (α=1)      | 1            |
 | 3    | 1.197          | 2.913          | 2            |
 
 **Lettura critica**: i tre metodi convergono qualitativamente:
 - N_eff_trace (1.10-1.20): un fattore comune domina, è il dato primario (sigillato come N_eff primario in `decisione_neff_primario.md`)
 - N_eff_LW_equiv per F1/F3 (≈3.0): coerente con n_spike RMT=2 (1 mercato + 2 secondari = 3 dimensioni effettive)
-- F2 anomalo (LW_equiv=72) perché α=1 sopprime completamente il fattore mercato → degenerazione matematica del modello, non N_eff reale
+- F2 esclusa dalla media LW_equiv (α=1 satura il modello constant-correlation, formula degenera)
+
+### Test target identity per F2 (post-hoc, falsifica ipotesi a vs b)
+
+Ipotesi:
+- (a) F2 IS strutturalmente omogeneo (predominio mc=3) → α=1 segnala mancanza informazione
+- (b) Target constant-correlation troppo flessibile con ρ̄=0.95 → γ→0 satura
+
+Ricalcolo α_LW(F2) con target alternativo `μ·I` (identity-scaled, Ledoit-Wolf 2004):
+
+| F2 LW config | α | π | ρ | γ |
+|--------------|---|---|---|---|
+| Target constant-correlation | 1.0000 | 0.0010 | 0.0010 | ≈0 |
+| Target identity μ·I         | **0.0467** | 1.03e-3 | 1.58e-5 | 8.29e-5 |
+
+**Esito: ipotesi (b) CONFERMATA**. Con target identity α=0.047 coerente con α_RMT(F2)=0.041 (Δrel +14%). La saturazione α=1 era artefatto del target che assorbiva strutturalmente ρ̄=0.95, non segnale di anomalia F2.
 
 ### Frobenius distance cross-fold (stabilità struttura)
 
@@ -81,31 +96,30 @@ Un singolo "fattore comune" assorbe 91-95% della varianza totale in tutti i fold
 
 Tutte sotto 6%: struttura di correlazione **molto stabile cross-fold**, valida l'aggregazione di N_eff in un'unica stima per DSR aggregato (Task 7).
 
-## Confronto α_LW vs α_RMT — lettura critica
+## Confronto α_LW vs α_RMT — Predizione P4 FALSIFICATA
 
-| Fold | α_LW   | α_RMT  | Δrel   |
-|------|--------|--------|--------|
-| 1    | 0.6485 | 0.0137 | −97.9% |
-| 2    | 1.0000 | 0.0410 | −95.9% |
-| 3    | 0.6331 | 0.0243 | −96.2% |
+| Fold | α_LW   | α_RMT  | Δrel   | Entro ±15%? |
+|------|--------|--------|--------|--------------|
+| 1    | 0.6485 | 0.0137 | −97.9% | FAIL         |
+| 2    | 1.0000 | 0.0410 | −95.9% | FAIL         |
+| 3    | 0.6331 | 0.0243 | −96.2% | FAIL         |
 
-**Nota onesta sulla pre-registration**: avevo predetto "α_LW vs α_RMT entro ±15%" — questa **predizione è errata** perché i due metodi misurano grandezze **non equivalenti su scala diretta**:
+**Esito: P4 falsificata su tutti 3 fold.**
 
-- α_LW = peso ottimale dello shrinkage verso il target constant-correlation (parametro convex combination)
-- α_RMT = frazione di traccia in autovalori bulk (interpretabile come "varianza-rumore relativa")
+Causa: errore concettuale nella formulazione della predizione — α_LW e α_RMT non sono direttamente confrontabili su scala lineare. α_LW è un peso convex-combination verso un target specifico; α_RMT è una frazione di traccia in autovalori bulk MP. In presenza di un fattore dominante (top1 = 91-95% traccia in tutti i fold), α_RMT è strutturalmente piccolo (<5%) mentre α_LW può essere grande perché la distanza al target ρ̄ è piccola.
 
-In presenza di un fattore dominante (top1 = 91-95% traccia), α_RMT è strutturalmente piccolo (<5%) perché la traccia è schiacciata sul singolo autovalore mercato; α_LW è strutturalmente grande perché la distanza al target ρ̄ è piccola e la varianza dell'errore campionario domina.
+**Lezione (sigillata `audit_journal_v7_3.md`)**: l'equivalenza tra metodi di shrinkage non si verifica sui parametri α, ma sulla scala N_eff derivata. Su quella scala (vedi tabella precedente) i tre metodi convergono qualitativamente a 1-3 dimensioni effettive.
 
-Il **criterio corretto di consistency** è quello derivato in `N_eff_equivalent`: tutti e tre i metodi (trace, LW-equiv per F1/F3, n_spike RMT) convergono qualitativamente verso **1-3 dimensioni effettive**, non 72. F2 è l'eccezione α=1 spiegata sopra.
+**Disclosure paper v7.3**: P4 inclusa nel registro predizioni falsificate; la lezione metodologica entra in sezione "Limiti e correzioni del processo".
 
-Caveat sigillato per `audit_journal_v7_3.md`: la tolleranza ±15% nel quesito originale era un mismatch concettuale; l'equivalenza si verifica sulla scala N_eff, non sui parametri α.
 
 ## Decisioni metodologiche confermate
 
 1. **N_eff primario** (sigillato pre-DSR, da `decisione_neff_primario.md`): trace-based su matrice equity OOS ≈ 1.07-1.20 (cross-fold)
 2. **N_eff secondario** confermato dai 3 metodi su C IS: range 1.1-3.0
 3. Aggregazione DSR (Task 7): la stabilità Frobenius <6% giustifica una singola stima cross-fold
-4. **F2 saturation α=1**: trattare come segnale che F2 IS è già al target constant-correlation; nessuna patch necessaria, ma flag per Task 4
+4. **F2 saturation α=1 risolta**: artefatto target constant-correlation con ρ̄=0.95; nessun problema strutturale F2 (vedi test identity sopra)
+5. **Predizione P4 falsificata** (vedi sezione successiva e `audit_journal_v7_3.md`)
 
 ## Output files
 
