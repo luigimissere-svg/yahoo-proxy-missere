@@ -1,0 +1,28 @@
+S1.3 Backward Test — Bug 8 Exposure Cap
+Sealed version: v8.s1.3
+Cap %: 5.0%
+Fold capital (sum notional_open): 98,589.94 EUR
+Cap notional per ticker: 4,929.50 EUR
+
+Ticker        Not_orig     Not_cap  scale    PnL_orig     PnL_cap
+-----------------------------------------------------------------
+MU            10397.92     4929.50  0.474    11175.84     5298.30
+BBVA.MC        9950.76     4929.50  0.495     3627.09     1796.82
+EUROB.AT       9960.35     4929.50  0.495     1423.30      704.41
+PRY.MI         9963.52     4929.50  0.495     1286.88      636.69
+IBE.MC        10030.68     4929.50  0.491     1248.62      613.62
+ETE.AT         9863.70     4929.50  0.500     1054.08      526.79
+ENEL.MI       10040.50     4929.50  0.491      989.48      485.80
+FER.MC         9981.66     4929.50  0.494      909.16      448.99
+EDP.LS        10000.85     4929.50  0.493      -41.53      -20.47
+GMAB.CO        8400.00     4929.50  0.587     -312.00     -183.10
+-----------------------------------------------------------------
+TOT                                          21360.92    10307.85
+
+Delta P&L (cap vs orig): -11,053.07 EUR (-51.74%)
+MU contributo PRE-cap: 52.32% del PnL fold
+MU contributo POST-cap: 51.40% del PnL fold
+
+Falsificazione F2 pre-reg S1.3:
+  marginal = False
+  Bug 8 NON marginale: |Delta P&L| = 51.74% >= 5.0%. Cap necessario per stabilità del fold.
