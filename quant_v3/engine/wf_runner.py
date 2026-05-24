@@ -80,6 +80,18 @@ GRID_FULL: Dict[str, List[Any]] = {
     'max_portfolio_beta': [None, 1.3],
 }  # 3×2×3×2×2 = 72 combo
 
+# S1.5 esecuzione 3 — grid ampliato post-sigillo Bug 8 (f51ed7e, 24/05 06:44).
+# Motivazione: il GRID_SMOKE è degenere quando mc=2 (trial 1/2/5/6 producono
+# stat identiche → 8 trial nominali ma solo 2 portafogli effettivi). Il
+# consulente raccomanda thr più discriminanti e mc esteso a {2,3,4} prima
+# di leverage analysis. Non include target_risk_pct né max_portfolio_beta
+# per contenere il costo (manteniamo focus su selettore best_param F2).
+GRID_S1_5_EXEC3: Dict[str, List[Any]] = {
+    'threshold': [0.05, 0.10, 0.15, 0.20, 0.25, 0.30],
+    'min_concordant': [2, 3, 4],
+    'max_sector_pct': [None, 0.30],
+}  # 6×3×2 = 36 combo
+
 
 # ─── Backtest factory ────────────────────────────────────────────────────────
 
@@ -509,8 +521,11 @@ def parse_args():
     p.add_argument('--oos-months', type=int, default=3)
     p.add_argument('--step-months', type=int, default=3)
     # Grid
-    p.add_argument('--grid', choices=['smoke', 'full'], default='smoke',
-                   help="Preset griglia: 'smoke' (8 combo) o 'full' (72 combo)")
+    p.add_argument('--grid', choices=['smoke', 'full', 's1_5_exec3'], default='smoke',
+                   help="Preset griglia: 'smoke' (8 combo), 'full' (72 combo), "
+                        "o 's1_5_exec3' (36 combo: thr step 0.05, mc {2,3,4}, "
+                        "max_sector_pct {None,0.30}). Introdotto post-sigillo "
+                        "Bug 8 per superare degenerazione grid smoke su mc=2.")
     # Fixed params (defaults Fase 3)
     p.add_argument('--max-positions', type=int, default=10)
     p.add_argument('--per-ticker-cap', type=float, default=0.10)
@@ -595,7 +610,12 @@ def main():
         print(f"  {f}")
 
     # ── Grid ─────────────────────────────────────────────────────────────
-    grid = GRID_FULL if args.grid == 'full' else GRID_SMOKE
+    if args.grid == 'full':
+        grid = GRID_FULL
+    elif args.grid == 's1_5_exec3':
+        grid = GRID_S1_5_EXEC3
+    else:
+        grid = GRID_SMOKE
     n_combos = 1
     for v in grid.values():
         n_combos *= len(v)
