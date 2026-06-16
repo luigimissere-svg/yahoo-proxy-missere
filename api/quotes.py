@@ -159,7 +159,7 @@ def google_fx_to_eur(ccy: str) -> float:
 # YAHOO FINANCE (fallback)
 # =============================================================================
 
-def yahoo_fetch(symbol: str, timeout: int = 6, range_param: str = "5d", interval: str = "1d") -> dict:
+def yahoo_fetch(symbol: str, timeout: int = 6, range_param: str = "10d", interval: str = "1d") -> dict:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?range={range_param}&interval={interval}"
     req = urllib.request.Request(url, headers={"User-Agent": UA_YAHOO})
     try:
@@ -181,12 +181,35 @@ def yahoo_parse(j: dict, with_series: bool = False) -> dict:
         timestamps = result.get("timestamp") or []
         closes = (result.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
         pairs = [(t, c) for t, c in zip(timestamps, closes) if c is not None]
-        if len(pairs) >= 2:
-            prev = float(pairs[-2][1])
-        elif len(pairs) == 1:
-            prev = float(meta.get("chartPreviousClose") or meta.get("previousClose") or pairs[0][1])
-        else:
+
+        # ===== FIX gap-day bug (16/06/2026) =====
+        # La serie storica di Yahoo /v8/chart con range=10d&interval=1d puo' NON
+        # includere la chiusura del giorno corrente quando il mercato e' chiuso
+        # o e' pre-market. In quel caso pairs[-1] e' gia' l'ultima chiusura
+        # ufficiale (=prev_close corretto rispetto a regularMarketPrice).
+        # Prendere pairs[-2] saltava di due sedute e produceva variazioni errate
+        # (es. AMD 16/06 mostrava +12,04% vs +6,98% reale).
+        # Strategia:
+        #   - Se l'ultimo elemento della serie ha data == data di regularMarketPrice => usa pairs[-2]
+        #   - Altrimenti (serie ferma a ieri) => usa pairs[-1] = ultima chiusura ufficiale
+        import datetime as _dt2
+        prev = None
+        if len(pairs) >= 1:
+            last_ts = int(pairs[-1][0])
+            last_date = _dt2.datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d")
+            reg_ts = int(meta.get("regularMarketTime") or 0)
+            reg_date = _dt2.datetime.utcfromtimestamp(reg_ts).strftime("%Y-%m-%d") if reg_ts else ""
+            if reg_date and last_date == reg_date:
+                # serie include la barra di oggi => prev = penultimo
+                if len(pairs) >= 2:
+                    prev = float(pairs[-2][1])
+            else:
+                # serie si ferma a ieri => prev = ultima chiusura ufficiale
+                prev = float(pairs[-1][1])
+        if prev is None or prev <= 0:
+            # fallback robusto: chartPreviousClose, previousClose, infine price
             prev = float(meta.get("chartPreviousClose") or meta.get("previousClose") or price)
+        # ===== fine fix =====
 
         var_pct = (price - prev) / prev * 100 if prev else 0.0
         out = {
