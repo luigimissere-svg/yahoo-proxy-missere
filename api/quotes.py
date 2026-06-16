@@ -37,10 +37,17 @@ GOOGLE_COOKIE = "SOCS=CAISHAgCEhJnd3NfMjAyNjA0MjAtMF9SQzEaAmVuIAEaBgiAqruyBg"
 
 # Mappa Yahoo symbol → Google Finance symbol (per i ticker che vogliamo da Google)
 YAHOO_TO_GOOGLE = {
-    # USA
+    # USA - holding portafoglio
     "MSFT": "MSFT:NASDAQ", "GOOGL": "GOOGL:NASDAQ", "AMZN": "AMZN:NASDAQ",
     "META": "META:NASDAQ", "NVDA": "NVDA:NASDAQ", "MU": "MU:NASDAQ",
     "BKNG": "BKNG:NASDAQ", "WMT": "WMT:NASDAQ", "AMT": "AMT:NYSE",
+    "AMD": "AMD:NASDAQ", "IBM": "IBM:NYSE", "MRVL": "MRVL:NASDAQ",
+    "AVGO": "AVGO:NASDAQ", "ABT": "ABT:NYSE", "ADBE": "ADBE:NASDAQ",
+    "ADSK": "ADSK:NASDAQ", "BSX": "BSX:NYSE", "GFS": "GFS:NASDAQ",
+    "MELI": "MELI:NASDAQ", "MSI": "MSI:NYSE", "PANW": "PANW:NASDAQ",
+    "SE": "SE:NYSE",
+    # Norvegia
+    "YAR.OL": "YAR:OSL",
     # Italia
     "UCG.MI": "UCG:BIT", "PRY.MI": "PRY:BIT", "ENEL.MI": "ENEL:BIT", "RACE.MI": "RACE:BIT",
     # Germania / Xetra
@@ -63,7 +70,7 @@ YAHOO_TO_GOOGLE = {
 GOOGLE_CURRENCY = {
     "BIT": "EUR", "ETR": "EUR", "EPA": "EUR", "BME": "EUR", "AMS": "EUR",
     "FRA": "EUR", "MIL": "EUR", "VIE": "EUR",
-    "CPH": "DKK", "LON": "GBX", "STO": "SEK",
+    "CPH": "DKK", "LON": "GBX", "STO": "SEK", "OSL": "NOK",
     "NASDAQ": "USD", "NYSE": "USD", "NYSEARCA": "USD",
 }
 
