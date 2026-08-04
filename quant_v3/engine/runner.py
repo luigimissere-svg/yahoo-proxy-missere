@@ -99,6 +99,12 @@ def parse_args():
                    help="Soglia minima quality_score per passare il filtro (default -0.5)")
     p.add_argument('--log-trades', type=str, default=None,
                    help="Path CSV per dump trade log")
+    p.add_argument('--save-trades-csv', dest='save_trades_csv', type=str, default=None,
+                   help="Path CSV per dump ledger trade-level dall'analyzer TradeLedger "
+                        "(ticker, dt_open, dt_close, bars_held, pnl_net, pnl_pct, status). "
+                        "Include sia trade chiusi che snapshot di quelli aperti a fine run. "
+                        "Necessario per analisi di concentrazione e falsificazione ipotesi "
+                        "few-winners (item consulente maggio 2026).")
     p.add_argument('--equity-csv', type=str, default=None,
                    help="Path CSV per dump equity curve giornaliera")
     p.add_argument('--quantstats-html', type=str, default=None,
@@ -242,6 +248,10 @@ def run_backtest(args):
     cerebro.addanalyzer(bt.analyzers.TimeReturn, _name='timereturn',
                         timeframe=bt.TimeFrame.Days)
     cerebro.addanalyzer(bt.analyzers.Calmar, _name='calmar')
+    # Ledger trade-level: necessario per analisi di concentrazione su singoli
+    # ticker e falsificazione dell'ipotesi few-winners (item consulente v7 → v8).
+    from engine.trade_ledger import TradeLedger
+    cerebro.addanalyzer(TradeLedger, _name='ledger')
     # NOTE: AnnualReturn richiede stats.broker observer (non sempre attivo);
     # calcoliamo annual returns manualmente da timereturn (sotto).
 
@@ -392,6 +402,29 @@ def run_backtest(args):
     if args.log_trades:
         strat.dump_log(args.log_trades)
         print(f"\nTrade log → {args.log_trades}")
+
+    # Trade-level ledger dump (item consulente v7→v8).
+    if args.save_trades_csv:
+        import csv as _csv
+        ledger_data = strat.analyzers.ledger.get_analysis()
+        trades_list = ledger_data.get('trades', [])
+        if not trades_list:
+            print(f"\nTrade ledger: nessun trade da salvare (n_closed=0)")
+        else:
+            fieldnames = [
+                'ticker', 'dt_open', 'dt_close', 'bars_held',
+                'size', 'entry_price', 'notional_open',
+                'pnl_gross', 'pnl_net', 'pnl_pct',
+                'commission', 'status',
+            ]
+            with open(args.save_trades_csv, 'w', newline='', encoding='utf-8') as _f:
+                _w = _csv.DictWriter(_f, fieldnames=fieldnames)
+                _w.writeheader()
+                for tr in trades_list:
+                    _w.writerow({k: tr.get(k, '') for k in fieldnames})
+            print(f"\nTrade ledger CSV → {args.save_trades_csv}  "
+                  f"(closed={ledger_data.get('n_closed', 0)}, "
+                  f"open_at_end={ledger_data.get('n_open_at_end', 0)})")
 
     # QuantStats HTML report opzionale
     if args.quantstats_html:
