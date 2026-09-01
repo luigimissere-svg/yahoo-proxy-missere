@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "generated_at": "2026-08-01T06:11:51.787374+00:00",
+    "generated_at": "2026-09-01T08:12:36.088537+00:00",
     "generator": "quant_v3/scripts/generate_wf_snapshot.py",
     "source_results_csv": "wf_full_v3_results.csv",
     "source_stability_json": "wf_full_v3_stability.json",
@@ -13,15 +13,15 @@
     "next_revalidation_due": "2026-06-22"
   },
   "aggregate": {
-    "n_folds": 5,
-    "n_folds_valid": 5,
+    "n_folds": 6,
+    "n_folds_valid": 6,
     "n_folds_insufficient_is": 0,
     "n_folds_insufficient_oos": 0,
-    "is_sharpe_mean": 1.2308188520710108,
-    "oos_sharpe_mean": 0.8345014399076488,
-    "degradation_mean": 0.7529661712355218,
-    "overfitting_count": 1,
-    "overfitting_pct": 20.0,
+    "is_sharpe_mean": 1.3560628628987608,
+    "oos_sharpe_mean": 0.6740449777874171,
+    "degradation_mean": 0.6166898525501143,
+    "overfitting_count": 2,
+    "overfitting_pct": 33.3,
     "stability_level": "high"
   },
   "active_params": {
@@ -86,53 +86,53 @@
     "threshold": {
       "distribution": {
         "0.25": 3,
-        "0.2": 2
+        "0.2": 3
       },
       "winner_value": "0.25",
       "winner_count": 3,
-      "total_folds": 5,
+      "total_folds": 6,
       "is_stable": true,
-      "stability_pct": 60.0
+      "stability_pct": 50.0
     },
     "min_concordant": {
       "distribution": {
-        "3": 2,
+        "3": 3,
         "2": 3
       },
-      "winner_value": "2",
+      "winner_value": "3",
       "winner_count": 3,
-      "total_folds": 5,
+      "total_folds": 6,
       "is_stable": true,
-      "stability_pct": 60.0
+      "stability_pct": 50.0
     },
     "target_risk_pct": {
       "distribution": {
-        "0.008": 5
+        "0.008": 6
       },
       "winner_value": "0.008",
-      "winner_count": 5,
-      "total_folds": 5,
+      "winner_count": 6,
+      "total_folds": 6,
       "is_stable": true,
       "stability_pct": 100.0
     },
     "max_sector_pct": {
       "distribution": {
-        "None": 3,
+        "None": 4,
         "0.3": 2
       },
       "winner_value": "None",
-      "winner_count": 3,
-      "total_folds": 5,
+      "winner_count": 4,
+      "total_folds": 6,
       "is_stable": true,
-      "stability_pct": 60.0
+      "stability_pct": 66.7
     },
     "max_portfolio_beta": {
       "distribution": {
-        "None": 5
+        "None": 6
       },
       "winner_value": "None",
-      "winner_count": 5,
-      "total_folds": 5,
+      "winner_count": 6,
+      "total_folds": 6,
       "is_stable": true,
       "stability_pct": 100.0
     }
@@ -298,6 +298,39 @@
       "best_params": {
         "threshold": 0.2,
         "min_concordant": 2,
+        "target_risk_pct": 0.008,
+        "max_sector_pct": null,
+        "max_portfolio_beta": null
+      }
+    },
+    {
+      "fold_id": 6,
+      "is_start": "2025-05-22",
+      "is_end": "2026-05-22",
+      "oos_start": "2026-05-22",
+      "oos_end": "2026-08-22",
+      "is_sharpe": 1.9822829170375087,
+      "oos_sharpe": -0.1282373328137418,
+      "is_sharpe_bt": 1.984180746976297,
+      "oos_sharpe_bt": -0.1284338652398811,
+      "is_sharpe_flag": "ok",
+      "oos_sharpe_flag": "ok",
+      "is_n_bars": 523,
+      "oos_n_bars": 327,
+      "is_n_nonzero_returns": 271,
+      "oos_n_nonzero_returns": 63,
+      "degradation_ratio": -0.0646917408769231,
+      "overfitting_flag": true,
+      "is_pnl_pct": 67.8546341747923,
+      "oos_pnl_pct": -0.2880401701354951,
+      "is_max_dd_pct": 10.45344823971434,
+      "oos_max_dd_pct": 1.5435004714210372,
+      "is_trades": 10,
+      "oos_trades": 1,
+      "n_combos_evaluated": 72,
+      "best_params": {
+        "threshold": 0.2,
+        "min_concordant": 3,
         "target_risk_pct": 0.008,
         "max_sector_pct": null,
         "max_portfolio_beta": null
