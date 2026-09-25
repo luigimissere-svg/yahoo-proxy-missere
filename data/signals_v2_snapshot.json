@@ -1,9 +1,9 @@
 {
   "engine_version": "2.0",
-  "generated_at": "2026-09-25T19:26:05.247248+00:00",
+  "generated_at": "2026-09-25T23:10:23.626137+00:00",
   "benchmark": {
     "ftse_mib_var": 0.63,
-    "sp500_var": 0.39
+    "sp500_var": 0.51
   },
   "modules_active": [
     "adaptive_atr_thresholds",
@@ -18,29 +18,29 @@
     {
       "ticker": "MSFT",
       "side": "HOLDING",
-      "price": 515.6,
+      "price": 516.17,
       "currency": "USD",
-      "var_pct": 3.55,
-      "atr_pct": 2.1225661872613317,
+      "var_pct": 3.66,
+      "atr_pct": 2.11987286232559,
       "thresholds": {
-        "opportunity": -5.31,
+        "opportunity": -5.3,
         "caution": -2.12,
         "rally": 2.12,
-        "momentum": 5.31,
+        "momentum": 5.3,
         "atr_pct": 2.12,
         "method": "adaptive"
       },
       "tag": "RALLY",
       "base_score": 2,
-      "volume_z": 1.35,
-      "volume_label": "\ud83d\udcc8 sopra media",
-      "rsi": 59.6,
-      "ma50_distance_pct": 8.35,
+      "volume_z": 2.55,
+      "volume_label": "\ud83d\udd0a alto (segnale forte)",
+      "rsi": 59.9,
+      "ma50_distance_pct": 8.48,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
-        "delta": 3.16,
-        "label": "\ud83d\ude80 sovraperforma +3.16%"
+        "delta": 3.15,
+        "label": "\ud83d\ude80 sovraperforma +3.15%"
       },
       "calendar": {
         "event": null,
@@ -48,16 +48,52 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": 3.35,
+      "composite_score": 3.71,
+      "action": "\ud83d\udfe2 BUY"
+    },
+    {
+      "ticker": "BKNG",
+      "side": "HOLDING",
+      "price": 163.95,
+      "currency": "USD",
+      "var_pct": 4.15,
+      "atr_pct": 4.2547824135728485,
+      "thresholds": {
+        "opportunity": -10.64,
+        "caution": -4.25,
+        "rally": 4.25,
+        "momentum": 10.64,
+        "atr_pct": 4.25,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": 0.02,
+      "volume_label": "\u2713 normale",
+      "rsi": 21.5,
+      "ma50_distance_pct": -14.27,
+      "mean_reversion_score": 4,
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 21.5 ipervenduto; prezzo -14.3% sotto MA50",
+      "relative_strength": {
+        "delta": 3.64,
+        "label": "\ud83d\ude80 sovraperforma +3.64%"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": 3.1,
       "action": "\ud83d\udfe2 BUY"
     },
     {
       "ticker": "META",
       "side": "HOLDING",
-      "price": 751.326,
+      "price": 751.66,
       "currency": "USD",
-      "var_pct": -3.38,
-      "atr_pct": 3.936932228188345,
+      "var_pct": -3.33,
+      "atr_pct": 3.9355707075923,
       "thresholds": {
         "opportunity": -9.84,
         "caution": -3.94,
@@ -68,15 +104,15 @@
       },
       "tag": "NEUTRAL",
       "base_score": 0,
-      "volume_z": -0.32,
+      "volume_z": 0.36,
       "volume_label": "\u2713 normale",
-      "rsi": 76.4,
-      "ma50_distance_pct": 22.03,
+      "rsi": 76.5,
+      "ma50_distance_pct": 22.07,
       "mean_reversion_score": -4,
-      "mean_reversion_label": "\ud83d\udd34 mean reversion SELL | RSI 76.4 ipercomprato; prezzo +22.0% sopra MA50",
+      "mean_reversion_label": "\ud83d\udd34 mean reversion SELL | RSI 76.5 ipercomprato; prezzo +22.1% sopra MA50",
       "relative_strength": {
-        "delta": -3.77,
-        "label": "\u26a0 sottoperforma -3.77%"
+        "delta": -3.84,
+        "label": "\u26a0 sottoperforma -3.84%"
       },
       "calendar": {
         "event": null,
@@ -84,44 +120,8 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": -3.23,
+      "composite_score": -3.04,
       "action": "\ud83d\udd34 REDUCE"
-    },
-    {
-      "ticker": "BKNG",
-      "side": "HOLDING",
-      "price": 163.49,
-      "currency": "USD",
-      "var_pct": 3.86,
-      "atr_pct": 4.245785387398125,
-      "thresholds": {
-        "opportunity": -10.61,
-        "caution": -4.25,
-        "rally": 4.25,
-        "momentum": 10.61,
-        "atr_pct": 4.25,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -0.75,
-      "volume_label": "\u2713 normale",
-      "rsi": 20.8,
-      "ma50_distance_pct": -14.51,
-      "mean_reversion_score": 4,
-      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 20.8 ipervenduto; prezzo -14.5% sotto MA50",
-      "relative_strength": {
-        "delta": 3.47,
-        "label": "\ud83d\ude80 sovraperforma +3.47%"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": 2.82,
-      "action": "\ud83d\udfe2 BUY"
     },
     {
       "ticker": "REP.MC",
@@ -129,23 +129,23 @@
       "price": 30.75,
       "currency": "EUR",
       "var_pct": -2.5,
-      "atr_pct": 2.9198601132347473,
+      "atr_pct": 2.7538720869392947,
       "thresholds": {
-        "opportunity": -7.3,
-        "caution": -2.92,
-        "rally": 2.92,
-        "momentum": 7.3,
-        "atr_pct": 2.92,
+        "opportunity": -6.88,
+        "caution": -2.75,
+        "rally": 2.75,
+        "momentum": 6.88,
+        "atr_pct": 2.75,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": 0.08,
       "volume_label": "\u2713 normale",
-      "rsi": 70.1,
-      "ma50_distance_pct": 12.24,
-      "mean_reversion_score": -3,
-      "mean_reversion_label": "\ud83d\udd34 mean reversion SELL | RSI 70.1 ipercomprato",
+      "rsi": 81.4,
+      "ma50_distance_pct": 15.65,
+      "mean_reversion_score": -4,
+      "mean_reversion_label": "\ud83d\udd34 mean reversion SELL | RSI 81.4 ipercomprato; prezzo +15.7% sopra MA50",
       "relative_strength": {
         "delta": -3.13,
         "label": "\u26a0 sottoperforma -3.13%"
@@ -156,7 +156,7 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": -2.42,
+      "composite_score": -2.92,
       "action": "\ud83d\udd34 REDUCE"
     },
     {
@@ -165,12 +165,12 @@
       "price": 253.0,
       "currency": "DKK",
       "var_pct": 0.0,
-      "atr_pct": 3.2015808553496434,
+      "atr_pct": 3.197346132128741,
       "thresholds": {
-        "opportunity": -8.0,
+        "opportunity": -7.99,
         "caution": -3.2,
         "rally": 3.2,
-        "momentum": 8.0,
+        "momentum": 7.99,
         "atr_pct": 3.2,
         "method": "adaptive"
       },
@@ -178,10 +178,10 @@
       "base_score": 0,
       "volume_z": -0.55,
       "volume_label": "\u2713 normale",
-      "rsi": 18.6,
-      "ma50_distance_pct": -14.78,
+      "rsi": 18.7,
+      "ma50_distance_pct": -15.22,
       "mean_reversion_score": 4,
-      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 18.6 ipervenduto; prezzo -14.8% sotto MA50",
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 18.7 ipervenduto; prezzo -15.2% sotto MA50",
       "relative_strength": {
         "delta": -0.63,
         "label": "\u2198 peggio del mercato -0.63%"
@@ -201,23 +201,23 @@
       "price": 396.85,
       "currency": "EUR",
       "var_pct": -0.06,
-      "atr_pct": 2.4892459580537025,
+      "atr_pct": 2.531748540385991,
       "thresholds": {
-        "opportunity": -6.22,
-        "caution": -2.49,
-        "rally": 2.49,
-        "momentum": 6.22,
-        "atr_pct": 2.49,
+        "opportunity": -6.33,
+        "caution": -2.53,
+        "rally": 2.53,
+        "momentum": 6.33,
+        "atr_pct": 2.53,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.51,
       "volume_label": "\u2713 normale",
-      "rsi": 26.7,
-      "ma50_distance_pct": -11.09,
+      "rsi": 28.8,
+      "ma50_distance_pct": -11.42,
       "mean_reversion_score": 4,
-      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 26.7 ipervenduto; prezzo -11.1% sotto MA50",
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 28.8 ipervenduto; prezzo -11.4% sotto MA50",
       "relative_strength": {
         "delta": -0.69,
         "label": "\u2198 peggio del mercato -0.69%"
@@ -232,30 +232,66 @@
       "action": "\u2197 ACCUMULATE"
     },
     {
-      "ticker": "MU",
+      "ticker": "ZTS",
       "side": "HOLDING",
-      "price": 1084.85,
+      "price": 71.05,
       "currency": "USD",
-      "var_pct": 0.4,
-      "atr_pct": 4.108676398974274,
+      "var_pct": 1.11,
+      "atr_pct": 2.392681414445966,
       "thresholds": {
-        "opportunity": -10.27,
-        "caution": -4.11,
-        "rally": 4.11,
-        "momentum": 10.27,
-        "atr_pct": 4.11,
+        "opportunity": -5.98,
+        "caution": -2.39,
+        "rally": 2.39,
+        "momentum": 5.98,
+        "atr_pct": 2.39,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
-      "volume_z": -2.04,
-      "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 59.5,
-      "ma50_distance_pct": 15.2,
-      "mean_reversion_score": -2,
-      "mean_reversion_label": "\ud83d\udcc8 overbought mild | prezzo +15.2% sopra MA50",
+      "volume_z": -0.35,
+      "volume_label": "\u2713 normale",
+      "rsi": 28.4,
+      "ma50_distance_pct": -5.17,
+      "mean_reversion_score": 3,
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 28.4 ipervenduto",
       "relative_strength": {
-        "delta": 0.01,
+        "delta": 0.6,
+        "label": "\u2197 meglio del mercato +0.6%"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": 1.57,
+      "action": "\u2197 ACCUMULATE"
+    },
+    {
+      "ticker": "BNP.PA",
+      "side": "HOLDING",
+      "price": 99.3,
+      "currency": "EUR",
+      "var_pct": 0.88,
+      "atr_pct": 2.4041738981074716,
+      "thresholds": {
+        "opportunity": -6.01,
+        "caution": -2.4,
+        "rally": 2.4,
+        "momentum": 6.01,
+        "atr_pct": 2.4,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -0.23,
+      "volume_label": "\u2713 normale",
+      "rsi": 28.8,
+      "ma50_distance_pct": -7.1,
+      "mean_reversion_score": 3,
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 28.8 ipervenduto",
+      "relative_strength": {
+        "delta": 0.25,
         "label": "in linea"
       },
       "calendar": {
@@ -264,8 +300,8 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": -1.61,
-      "action": "\u2198 MONITOR"
+      "composite_score": 1.51,
+      "action": "\u2197 ACCUMULATE"
     },
     {
       "ticker": "ITX.MC",
@@ -273,12 +309,12 @@
       "price": 53.26,
       "currency": "EUR",
       "var_pct": 0.68,
-      "atr_pct": 2.0519274837507266,
+      "atr_pct": 2.049688392913931,
       "thresholds": {
-        "opportunity": -5.13,
+        "opportunity": -5.12,
         "caution": -2.05,
         "rally": 2.05,
-        "momentum": 5.13,
+        "momentum": 5.12,
         "atr_pct": 2.05,
         "method": "adaptive"
       },
@@ -286,10 +322,10 @@
       "base_score": 0,
       "volume_z": -0.32,
       "volume_label": "\u2713 normale",
-      "rsi": 25.3,
-      "ma50_distance_pct": -5.08,
+      "rsi": 23.2,
+      "ma50_distance_pct": -5.73,
       "mean_reversion_score": 3,
-      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 25.3 ipervenduto",
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 23.2 ipervenduto",
       "relative_strength": {
         "delta": 0.05,
         "label": "in linea"
@@ -304,208 +340,28 @@
       "action": "\u2197 ACCUMULATE"
     },
     {
-      "ticker": "MELI",
-      "side": "HOLDING",
-      "price": 1754.96,
-      "currency": "USD",
-      "var_pct": 0.05,
-      "atr_pct": 3.3043080902795197,
-      "thresholds": {
-        "opportunity": -8.26,
-        "caution": -3.3,
-        "rally": 3.3,
-        "momentum": 8.26,
-        "atr_pct": 3.3,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -0.46,
-      "volume_label": "\u2713 normale",
-      "rsi": 21.4,
-      "ma50_distance_pct": -6.19,
-      "mean_reversion_score": 3,
-      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 21.4 ipervenduto",
-      "relative_strength": {
-        "delta": -0.34,
-        "label": "in linea"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": 1.26,
-      "action": "\u2197 ACCUMULATE"
-    },
-    {
-      "ticker": "LLY",
-      "side": "HOLDING",
-      "price": 1183.49,
-      "currency": "USD",
-      "var_pct": 0.14,
-      "atr_pct": 2.4694519572009863,
-      "thresholds": {
-        "opportunity": -6.17,
-        "caution": -2.47,
-        "rally": 2.47,
-        "momentum": 6.17,
-        "atr_pct": 2.47,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -1.95,
-      "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 61.8,
-      "ma50_distance_pct": 0.52,
-      "mean_reversion_score": -1,
-      "mean_reversion_label": "\ud83d\udcc8 overbought mild | RSI 61.8 forte",
-      "relative_strength": {
-        "delta": -0.25,
-        "label": "in linea"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": -1.16,
-      "action": "\u2198 MONITOR"
-    },
-    {
-      "ticker": "ZTS",
-      "side": "HOLDING",
-      "price": 70.515,
-      "currency": "USD",
-      "var_pct": 0.35,
-      "atr_pct": 2.363225862074988,
-      "thresholds": {
-        "opportunity": -5.91,
-        "caution": -2.36,
-        "rally": 2.36,
-        "momentum": 5.91,
-        "atr_pct": 2.36,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -1.56,
-      "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 24.8,
-      "ma50_distance_pct": -5.88,
-      "mean_reversion_score": 3,
-      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 24.8 ipervenduto",
-      "relative_strength": {
-        "delta": -0.04,
-        "label": "in linea"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": 1.02,
-      "action": "\u2197 ACCUMULATE"
-    },
-    {
-      "ticker": "BNP.PA",
-      "side": "HOLDING",
-      "price": 99.3,
-      "currency": "EUR",
-      "var_pct": 0.88,
-      "atr_pct": 2.4334623192326923,
-      "thresholds": {
-        "opportunity": -6.08,
-        "caution": -2.43,
-        "rally": 2.43,
-        "momentum": 6.08,
-        "atr_pct": 2.43,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -0.23,
-      "volume_label": "\u2713 normale",
-      "rsi": 32.9,
-      "ma50_distance_pct": -6.23,
-      "mean_reversion_score": 2,
-      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 32.9 debole",
-      "relative_strength": {
-        "delta": 0.25,
-        "label": "in linea"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": 1.01,
-      "action": "\u2197 ACCUMULATE"
-    },
-    {
-      "ticker": "SE",
-      "side": "HOLDING",
-      "price": 99.49,
-      "currency": "USD",
-      "var_pct": -1.23,
-      "atr_pct": 3.5525621343006804,
-      "thresholds": {
-        "opportunity": -8.88,
-        "caution": -3.55,
-        "rally": 3.55,
-        "momentum": 8.88,
-        "atr_pct": 3.55,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -1.96,
-      "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 26.2,
-      "ma50_distance_pct": -10.34,
-      "mean_reversion_score": 4,
-      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 26.2 ipervenduto; prezzo -10.3% sotto MA50",
-      "relative_strength": {
-        "delta": -1.62,
-        "label": "\u2198 peggio del mercato -1.62%"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": 0.93,
-      "action": "\u2197 ACCUMULATE"
-    },
-    {
       "ticker": "LHA.DE",
       "side": "HOLDING",
       "price": 7.636,
       "currency": "EUR",
       "var_pct": 0.82,
-      "atr_pct": 2.4058964091010093,
+      "atr_pct": 2.36900596917064,
       "thresholds": {
-        "opportunity": -6.01,
-        "caution": -2.41,
-        "rally": 2.41,
-        "momentum": 6.01,
-        "atr_pct": 2.41,
+        "opportunity": -5.92,
+        "caution": -2.37,
+        "rally": 2.37,
+        "momentum": 5.92,
+        "atr_pct": 2.37,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": 0.95,
       "volume_label": "\u2713 normale",
-      "rsi": 43.5,
-      "ma50_distance_pct": -5.9,
-      "mean_reversion_score": 1,
-      "mean_reversion_label": "\ud83d\udcc9 oversold mild",
+      "rsi": 38.9,
+      "ma50_distance_pct": -6.97,
+      "mean_reversion_score": 2,
+      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 38.9 debole",
       "relative_strength": {
         "delta": 0.19,
         "label": "in linea"
@@ -516,34 +372,142 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": 0.84,
+      "composite_score": 1.34,
       "action": "\u2197 ACCUMULATE"
     },
     {
-      "ticker": "IBE.MC",
+      "ticker": "MELI",
       "side": "HOLDING",
-      "price": 20.33,
-      "currency": "EUR",
-      "var_pct": 0.4,
-      "atr_pct": 1.5810561184161809,
+      "price": 1752.61,
+      "currency": "USD",
+      "var_pct": -0.09,
+      "atr_pct": 3.308738650076321,
       "thresholds": {
-        "opportunity": -3.95,
-        "caution": -1.58,
-        "rally": 1.58,
-        "momentum": 3.95,
-        "atr_pct": 1.58,
+        "opportunity": -8.27,
+        "caution": -3.31,
+        "rally": 3.31,
+        "momentum": 8.27,
+        "atr_pct": 3.31,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.22,
       "volume_label": "\u2713 normale",
-      "rsi": 60.6,
-      "ma50_distance_pct": -0.15,
-      "mean_reversion_score": -1,
-      "mean_reversion_label": "\ud83d\udcc8 overbought mild | RSI 60.6 forte",
+      "rsi": 21.1,
+      "ma50_distance_pct": -6.31,
+      "mean_reversion_score": 3,
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 21.1 ipervenduto",
       "relative_strength": {
-        "delta": -0.23,
+        "delta": -0.6,
+        "label": "\u2198 peggio del mercato -0.6%"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": 1.25,
+      "action": "\u2197 ACCUMULATE"
+    },
+    {
+      "ticker": "SE",
+      "side": "HOLDING",
+      "price": 99.55,
+      "currency": "USD",
+      "var_pct": -1.17,
+      "atr_pct": 3.5598774593478697,
+      "thresholds": {
+        "opportunity": -8.9,
+        "caution": -3.56,
+        "rally": 3.56,
+        "momentum": 8.9,
+        "atr_pct": 3.56,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -1.36,
+      "volume_label": "\ud83d\udd07 basso (rumore)",
+      "rsi": 26.3,
+      "ma50_distance_pct": -10.29,
+      "mean_reversion_score": 4,
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 26.3 ipervenduto; prezzo -10.3% sotto MA50",
+      "relative_strength": {
+        "delta": -1.68,
+        "label": "\u2198 peggio del mercato -1.68%"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": 1.09,
+      "action": "\u2197 ACCUMULATE"
+    },
+    {
+      "ticker": "ETE.AT",
+      "side": "WATCHLIST",
+      "price": 17.435,
+      "currency": "EUR",
+      "var_pct": 2.56,
+      "atr_pct": 2.6050415359625294,
+      "thresholds": {
+        "opportunity": -6.51,
+        "caution": -2.61,
+        "rally": 2.61,
+        "momentum": 6.51,
+        "atr_pct": 2.61,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -0.25,
+      "volume_label": "\u2713 normale",
+      "rsi": 36.5,
+      "ma50_distance_pct": 2.42,
+      "mean_reversion_score": 1,
+      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 36.5 debole",
+      "relative_strength": {
+        "delta": 1.93,
+        "label": "\u2197 meglio del mercato +1.93%"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": 1.0,
+      "action": "\u2197 ACCUMULATE"
+    },
+    {
+      "ticker": "MU",
+      "side": "HOLDING",
+      "price": 1082.28,
+      "currency": "USD",
+      "var_pct": 0.16,
+      "atr_pct": 4.118224187946988,
+      "thresholds": {
+        "opportunity": -10.3,
+        "caution": -4.12,
+        "rally": 4.12,
+        "momentum": 10.3,
+        "atr_pct": 4.12,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -1.09,
+      "volume_label": "\ud83d\udd07 basso (rumore)",
+      "rsi": 59.2,
+      "ma50_distance_pct": 14.94,
+      "mean_reversion_score": -1,
+      "mean_reversion_label": "\ud83d\udcc8 overbought mild",
+      "relative_strength": {
+        "delta": -0.35,
         "label": "in linea"
       },
       "calendar": {
@@ -552,8 +516,116 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": -0.64,
+      "composite_score": -0.93,
       "action": "\u2198 MONITOR"
+    },
+    {
+      "ticker": "ENEL.MI",
+      "side": "HOLDING",
+      "price": 8.913,
+      "currency": "EUR",
+      "var_pct": 1.04,
+      "atr_pct": 1.7936095095168425,
+      "thresholds": {
+        "opportunity": -4.48,
+        "caution": -1.79,
+        "rally": 1.79,
+        "momentum": 4.48,
+        "atr_pct": 1.79,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -0.73,
+      "volume_label": "\u2713 normale",
+      "rsi": 39.3,
+      "ma50_distance_pct": -6.69,
+      "mean_reversion_score": 2,
+      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 39.3 debole",
+      "relative_strength": {
+        "delta": 0.41,
+        "label": "in linea"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": 0.9,
+      "action": "\u2197 ACCUMULATE"
+    },
+    {
+      "ticker": "LLY",
+      "side": "HOLDING",
+      "price": 1183.46,
+      "currency": "USD",
+      "var_pct": 0.13,
+      "atr_pct": 2.4695146174585267,
+      "thresholds": {
+        "opportunity": -6.17,
+        "caution": -2.47,
+        "rally": 2.47,
+        "momentum": 6.17,
+        "atr_pct": 2.47,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -0.77,
+      "volume_label": "\u2713 normale",
+      "rsi": 61.8,
+      "ma50_distance_pct": 0.51,
+      "mean_reversion_score": -1,
+      "mean_reversion_label": "\ud83d\udcc8 overbought mild | RSI 61.8 forte",
+      "relative_strength": {
+        "delta": -0.38,
+        "label": "in linea"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": -0.84,
+      "action": "\u2198 MONITOR"
+    },
+    {
+      "ticker": "FER.MC",
+      "side": "WATCHLIST",
+      "price": 48.56,
+      "currency": "EUR",
+      "var_pct": 0.31,
+      "atr_pct": 2.0066690053690457,
+      "thresholds": {
+        "opportunity": -5.02,
+        "caution": -2.01,
+        "rally": 2.01,
+        "momentum": 5.02,
+        "atr_pct": 2.01,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -0.76,
+      "volume_label": "\u2713 normale",
+      "rsi": 38.8,
+      "ma50_distance_pct": -8.4,
+      "mean_reversion_score": 2,
+      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 38.8 debole",
+      "relative_strength": {
+        "delta": -0.32,
+        "label": "in linea"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": 0.68,
+      "action": "\u2197 ACCUMULATE"
     },
     {
       "ticker": "GMAB.CO",
@@ -561,23 +633,23 @@
       "price": 2277.0,
       "currency": "DKK",
       "var_pct": 0.4,
-      "atr_pct": 2.2397891963109355,
+      "atr_pct": 2.2108843537414966,
       "thresholds": {
-        "opportunity": -5.6,
-        "caution": -2.24,
-        "rally": 2.24,
-        "momentum": 5.6,
-        "atr_pct": 2.24,
+        "opportunity": -5.53,
+        "caution": -2.21,
+        "rally": 2.21,
+        "momentum": 5.53,
+        "atr_pct": 2.21,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.25,
       "volume_label": "\u2713 normale",
-      "rsi": 69.5,
+      "rsi": 64.2,
       "ma50_distance_pct": 9.93,
       "mean_reversion_score": -1,
-      "mean_reversion_label": "\ud83d\udcc8 overbought mild | RSI 69.5 forte",
+      "mean_reversion_label": "\ud83d\udcc8 overbought mild | RSI 64.2 forte",
       "relative_strength": {
         "delta": -0.23,
         "label": "in linea"
@@ -592,66 +664,30 @@
       "action": "\u2198 MONITOR"
     },
     {
-      "ticker": "NVDA",
-      "side": "HOLDING",
-      "price": 223.71,
-      "currency": "USD",
-      "var_pct": -0.39,
-      "atr_pct": 2.334666379907837,
+      "ticker": "TRN.MI",
+      "side": "WATCHLIST",
+      "price": 9.174,
+      "currency": "EUR",
+      "var_pct": 0.22,
+      "atr_pct": 1.8493107412035203,
       "thresholds": {
-        "opportunity": -5.84,
-        "caution": -2.33,
-        "rally": 2.33,
-        "momentum": 5.84,
-        "atr_pct": 2.33,
+        "opportunity": -4.62,
+        "caution": -1.85,
+        "rally": 1.85,
+        "momentum": 4.62,
+        "atr_pct": 1.85,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
-      "volume_z": -1.28,
-      "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 42.2,
-      "ma50_distance_pct": 3.59,
-      "mean_reversion_score": 0,
-      "mean_reversion_label": "neutrale",
+      "volume_z": -0.94,
+      "volume_label": "\u2713 normale",
+      "rsi": 39.1,
+      "ma50_distance_pct": -6.1,
+      "mean_reversion_score": 2,
+      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 39.1 debole",
       "relative_strength": {
-        "delta": -0.78,
-        "label": "\u2198 peggio del mercato -0.78%"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": -0.62,
-      "action": "\u2198 MONITOR"
-    },
-    {
-      "ticker": "AMZN",
-      "side": "HOLDING",
-      "price": 249.72,
-      "currency": "USD",
-      "var_pct": 0.14,
-      "atr_pct": 2.1320291499050055,
-      "thresholds": {
-        "opportunity": -5.33,
-        "caution": -2.13,
-        "rally": 2.13,
-        "momentum": 5.33,
-        "atr_pct": 2.13,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -1.58,
-      "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 40.1,
-      "ma50_distance_pct": -2.52,
-      "mean_reversion_score": 0,
-      "mean_reversion_label": "neutrale",
-      "relative_strength": {
-        "delta": -0.25,
+        "delta": -0.41,
         "label": "in linea"
       },
       "calendar": {
@@ -660,35 +696,35 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": -0.55,
-      "action": "\u2198 MONITOR"
+      "composite_score": 0.59,
+      "action": "\u2197 ACCUMULATE"
     },
     {
-      "ticker": "WMT",
+      "ticker": "ADBE",
       "side": "HOLDING",
-      "price": 107.91,
+      "price": 235.47,
       "currency": "USD",
-      "var_pct": 0.3,
-      "atr_pct": 1.6766618327070195,
+      "var_pct": -1.45,
+      "atr_pct": 3.7775526124069856,
       "thresholds": {
-        "opportunity": -4.19,
-        "caution": -1.68,
-        "rally": 1.68,
-        "momentum": 4.19,
-        "atr_pct": 1.68,
+        "opportunity": -9.44,
+        "caution": -3.78,
+        "rally": 3.78,
+        "momentum": 9.44,
+        "atr_pct": 3.78,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
-      "volume_z": -1.73,
+      "volume_z": -1.16,
       "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 52.7,
-      "ma50_distance_pct": -1.35,
-      "mean_reversion_score": 0,
-      "mean_reversion_label": "neutrale",
+      "rsi": 29.3,
+      "ma50_distance_pct": -8.53,
+      "mean_reversion_score": 3,
+      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 29.3 ipervenduto",
       "relative_strength": {
-        "delta": -0.09,
-        "label": "in linea"
+        "delta": -1.96,
+        "label": "\u2198 peggio del mercato -1.96%"
       },
       "calendar": {
         "event": null,
@@ -696,8 +732,8 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": -0.55,
-      "action": "\u2198 MONITOR"
+      "composite_score": 0.56,
+      "action": "\u2197 ACCUMULATE"
     },
     {
       "ticker": "RACE.MI",
@@ -705,21 +741,21 @@
       "price": 357.05,
       "currency": "EUR",
       "var_pct": -1.0,
-      "atr_pct": 2.2535864977975595,
+      "atr_pct": 2.194450895915866,
       "thresholds": {
-        "opportunity": -5.63,
-        "caution": -2.25,
-        "rally": 2.25,
-        "momentum": 5.63,
-        "atr_pct": 2.25,
+        "opportunity": -5.49,
+        "caution": -2.19,
+        "rally": 2.19,
+        "momentum": 5.49,
+        "atr_pct": 2.19,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.05,
       "volume_label": "\u2713 normale",
-      "rsi": 50.7,
-      "ma50_distance_pct": 1.53,
+      "rsi": 56.2,
+      "ma50_distance_pct": 2.71,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
@@ -736,103 +772,31 @@
       "action": "\u2198 MONITOR"
     },
     {
-      "ticker": "ETE.AT",
-      "side": "WATCHLIST",
-      "price": 17.435,
-      "currency": "EUR",
-      "var_pct": 2.56,
-      "atr_pct": 2.5830630468096922,
-      "thresholds": {
-        "opportunity": -6.46,
-        "caution": -2.58,
-        "rally": 2.58,
-        "momentum": 6.46,
-        "atr_pct": 2.58,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -0.25,
-      "volume_label": "\u2713 normale",
-      "rsi": 48.2,
-      "ma50_distance_pct": 4.68,
-      "mean_reversion_score": 0,
-      "mean_reversion_label": "neutrale",
-      "relative_strength": {
-        "delta": 1.93,
-        "label": "\u2197 meglio del mercato +1.93%"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": 0.5,
-      "action": "\u2197 ACCUMULATE"
-    },
-    {
-      "ticker": "ADBE",
+      "ticker": "AMT",
       "side": "HOLDING",
-      "price": 235.515,
+      "price": 169.03,
       "currency": "USD",
-      "var_pct": -1.43,
-      "atr_pct": 3.7625768123734686,
+      "var_pct": 1.06,
+      "atr_pct": 2.298053914706514,
       "thresholds": {
-        "opportunity": -9.41,
-        "caution": -3.76,
-        "rally": 3.76,
-        "momentum": 9.41,
-        "atr_pct": 3.76,
+        "opportunity": -5.75,
+        "caution": -2.3,
+        "rally": 2.3,
+        "momentum": 5.75,
+        "atr_pct": 2.3,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
-      "volume_z": -1.66,
-      "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 29.3,
-      "ma50_distance_pct": -8.51,
-      "mean_reversion_score": 3,
-      "mean_reversion_label": "\ud83d\udfe2 mean reversion BUY | RSI 29.3 ipervenduto",
-      "relative_strength": {
-        "delta": -1.82,
-        "label": "\u2198 peggio del mercato -1.82%"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": 0.46,
-      "action": "\u26aa HOLD"
-    },
-    {
-      "ticker": "ENEL.MI",
-      "side": "HOLDING",
-      "price": 8.913,
-      "currency": "EUR",
-      "var_pct": 1.04,
-      "atr_pct": 1.7518558748681974,
-      "thresholds": {
-        "opportunity": -4.38,
-        "caution": -1.75,
-        "rally": 1.75,
-        "momentum": 4.38,
-        "atr_pct": 1.75,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -0.73,
+      "volume_z": -0.83,
       "volume_label": "\u2713 normale",
-      "rsi": 46.4,
-      "ma50_distance_pct": -5.47,
+      "rsi": 35.9,
+      "ma50_distance_pct": -2.33,
       "mean_reversion_score": 1,
-      "mean_reversion_label": "\ud83d\udcc9 oversold mild",
+      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 35.9 debole",
       "relative_strength": {
-        "delta": 0.41,
-        "label": "in linea"
+        "delta": 0.55,
+        "label": "\u2197 meglio del mercato +0.55%"
       },
       "calendar": {
         "event": null,
@@ -840,7 +804,7 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": 0.4,
+      "composite_score": 0.42,
       "action": "\u26aa HOLD"
     },
     {
@@ -849,12 +813,12 @@
       "price": 25.88,
       "currency": "EUR",
       "var_pct": 0.39,
-      "atr_pct": 2.18039298816253,
+      "atr_pct": 2.1777675090472486,
       "thresholds": {
-        "opportunity": -5.45,
+        "opportunity": -5.44,
         "caution": -2.18,
         "rally": 2.18,
-        "momentum": 5.45,
+        "momentum": 5.44,
         "atr_pct": 2.18,
         "method": "adaptive"
       },
@@ -862,8 +826,8 @@
       "base_score": 0,
       "volume_z": -0.97,
       "volume_label": "\u2713 normale",
-      "rsi": 55.7,
-      "ma50_distance_pct": -1.24,
+      "rsi": 49.5,
+      "ma50_distance_pct": -1.64,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
@@ -885,21 +849,21 @@
       "price": 122.4,
       "currency": "EUR",
       "var_pct": 0.04,
-      "atr_pct": 3.898225196091154,
+      "atr_pct": 3.8443565903774415,
       "thresholds": {
-        "opportunity": -9.75,
-        "caution": -3.9,
-        "rally": 3.9,
-        "momentum": 9.75,
-        "atr_pct": 3.9,
+        "opportunity": -9.61,
+        "caution": -3.84,
+        "rally": 3.84,
+        "momentum": 9.61,
+        "atr_pct": 3.84,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.54,
       "volume_label": "\u2713 normale",
-      "rsi": 46.1,
-      "ma50_distance_pct": -0.99,
+      "rsi": 50.1,
+      "ma50_distance_pct": -1.08,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
@@ -921,23 +885,23 @@
       "price": 22.96,
       "currency": "EUR",
       "var_pct": 0.09,
-      "atr_pct": 2.725236615911475,
+      "atr_pct": 2.5781543448380533,
       "thresholds": {
-        "opportunity": -6.81,
-        "caution": -2.73,
-        "rally": 2.73,
-        "momentum": 6.81,
-        "atr_pct": 2.73,
+        "opportunity": -6.45,
+        "caution": -2.58,
+        "rally": 2.58,
+        "momentum": 6.45,
+        "atr_pct": 2.58,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.05,
       "volume_label": "\u2713 normale",
-      "rsi": 31.6,
-      "ma50_distance_pct": -0.33,
+      "rsi": 33.5,
+      "ma50_distance_pct": -0.4,
       "mean_reversion_score": 1,
-      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 31.6 debole",
+      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 33.5 debole",
       "relative_strength": {
         "delta": -0.54,
         "label": "\u2198 peggio del mercato -0.54%"
@@ -952,26 +916,62 @@
       "action": "\u26aa HOLD"
     },
     {
+      "ticker": "NVDA",
+      "side": "HOLDING",
+      "price": 225.07,
+      "currency": "USD",
+      "var_pct": 0.22,
+      "atr_pct": 2.3204551697917344,
+      "thresholds": {
+        "opportunity": -5.8,
+        "caution": -2.32,
+        "rally": 2.32,
+        "momentum": 5.8,
+        "atr_pct": 2.32,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -0.74,
+      "volume_label": "\u2713 normale",
+      "rsi": 43.7,
+      "ma50_distance_pct": 4.21,
+      "mean_reversion_score": 0,
+      "mean_reversion_label": "neutrale",
+      "relative_strength": {
+        "delta": -0.29,
+        "label": "in linea"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": -0.31,
+      "action": "\u26aa HOLD"
+    },
+    {
       "ticker": "EUROB.AT",
       "side": "WATCHLIST",
       "price": 4.702,
       "currency": "EUR",
       "var_pct": 1.75,
-      "atr_pct": 2.473110616844057,
+      "atr_pct": 2.527281264635818,
       "thresholds": {
-        "opportunity": -6.18,
-        "caution": -2.47,
-        "rally": 2.47,
-        "momentum": 6.18,
-        "atr_pct": 2.47,
+        "opportunity": -6.32,
+        "caution": -2.53,
+        "rally": 2.53,
+        "momentum": 6.32,
+        "atr_pct": 2.53,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.12,
       "volume_label": "\u2713 normale",
-      "rsi": 42.4,
-      "ma50_distance_pct": 3.22,
+      "rsi": 40.8,
+      "ma50_distance_pct": 1.7,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
@@ -993,21 +993,21 @@
       "price": 11.966,
       "currency": "EUR",
       "var_pct": 1.27,
-      "atr_pct": 1.965092094096355,
+      "atr_pct": 1.9344235220233021,
       "thresholds": {
-        "opportunity": -4.91,
-        "caution": -1.97,
-        "rally": 1.97,
-        "momentum": 4.91,
-        "atr_pct": 1.97,
+        "opportunity": -4.84,
+        "caution": -1.93,
+        "rally": 1.93,
+        "momentum": 4.84,
+        "atr_pct": 1.93,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": 0.15,
       "volume_label": "\u2713 normale",
-      "rsi": 59.4,
-      "ma50_distance_pct": 2.25,
+      "rsi": 55.7,
+      "ma50_distance_pct": 1.1,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
@@ -1024,66 +1024,30 @@
       "action": "\u26aa HOLD"
     },
     {
-      "ticker": "BSX",
+      "ticker": "WMT",
       "side": "HOLDING",
-      "price": 44.025,
+      "price": 107.98,
       "currency": "USD",
-      "var_pct": -1.47,
-      "atr_pct": 3.2489585005953723,
+      "var_pct": 0.36,
+      "atr_pct": 1.6841747097580513,
       "thresholds": {
-        "opportunity": -8.12,
-        "caution": -3.25,
-        "rally": 3.25,
-        "momentum": 8.12,
-        "atr_pct": 3.25,
+        "opportunity": -4.21,
+        "caution": -1.68,
+        "rally": 1.68,
+        "momentum": 4.21,
+        "atr_pct": 1.68,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
-      "volume_z": -2.09,
-      "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 33.3,
-      "ma50_distance_pct": -6.09,
-      "mean_reversion_score": 2,
-      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 33.3 debole",
-      "relative_strength": {
-        "delta": -1.86,
-        "label": "\u2198 peggio del mercato -1.86%"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": -0.18,
-      "action": "\u26aa HOLD"
-    },
-    {
-      "ticker": "FER.MC",
-      "side": "WATCHLIST",
-      "price": 48.56,
-      "currency": "EUR",
-      "var_pct": 0.31,
-      "atr_pct": 2.0063542898189684,
-      "thresholds": {
-        "opportunity": -5.02,
-        "caution": -2.01,
-        "rally": 2.01,
-        "momentum": 5.02,
-        "atr_pct": 2.01,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -0.76,
+      "volume_z": -0.63,
       "volume_label": "\u2713 normale",
-      "rsi": 41.6,
-      "ma50_distance_pct": -7.86,
-      "mean_reversion_score": 1,
-      "mean_reversion_label": "\ud83d\udcc9 oversold mild",
+      "rsi": 52.9,
+      "ma50_distance_pct": -1.28,
+      "mean_reversion_score": 0,
+      "mean_reversion_label": "neutrale",
       "relative_strength": {
-        "delta": -0.32,
+        "delta": -0.15,
         "label": "in linea"
       },
       "calendar": {
@@ -1092,7 +1056,79 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": 0.18,
+      "composite_score": -0.23,
+      "action": "\u26aa HOLD"
+    },
+    {
+      "ticker": "AMZN",
+      "side": "HOLDING",
+      "price": 249.67,
+      "currency": "USD",
+      "var_pct": 0.12,
+      "atr_pct": 2.1324561453979114,
+      "thresholds": {
+        "opportunity": -5.33,
+        "caution": -2.13,
+        "rally": 2.13,
+        "momentum": 5.33,
+        "atr_pct": 2.13,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -0.3,
+      "volume_label": "\u2713 normale",
+      "rsi": 40.0,
+      "ma50_distance_pct": -2.54,
+      "mean_reversion_score": 0,
+      "mean_reversion_label": "neutrale",
+      "relative_strength": {
+        "delta": -0.39,
+        "label": "in linea"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": -0.21,
+      "action": "\u26aa HOLD"
+    },
+    {
+      "ticker": "IBE.MC",
+      "side": "HOLDING",
+      "price": 20.33,
+      "currency": "EUR",
+      "var_pct": 0.4,
+      "atr_pct": 1.5343923417348708,
+      "thresholds": {
+        "opportunity": -3.84,
+        "caution": -1.53,
+        "rally": 1.53,
+        "momentum": 3.84,
+        "atr_pct": 1.53,
+        "method": "adaptive"
+      },
+      "tag": "NEUTRAL",
+      "base_score": 0,
+      "volume_z": -0.22,
+      "volume_label": "\u2713 normale",
+      "rsi": 57.7,
+      "ma50_distance_pct": -0.63,
+      "mean_reversion_score": 0,
+      "mean_reversion_label": "neutrale",
+      "relative_strength": {
+        "delta": -0.23,
+        "label": "in linea"
+      },
+      "calendar": {
+        "event": null,
+        "in_days": null,
+        "date": null
+      },
+      "persistence_days": 1,
+      "composite_score": -0.14,
       "action": "\u26aa HOLD"
     },
     {
@@ -1101,21 +1137,21 @@
       "price": 17.89,
       "currency": "EUR",
       "var_pct": 0.22,
-      "atr_pct": 2.255849923596391,
+      "atr_pct": 2.2248904579708064,
       "thresholds": {
-        "opportunity": -5.64,
-        "caution": -2.26,
-        "rally": 2.26,
-        "momentum": 5.64,
-        "atr_pct": 2.26,
+        "opportunity": -5.56,
+        "caution": -2.22,
+        "rally": 2.22,
+        "momentum": 5.56,
+        "atr_pct": 2.22,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.02,
       "volume_label": "\u2713 normale",
-      "rsi": 46.6,
-      "ma50_distance_pct": 1.66,
+      "rsi": 44.3,
+      "ma50_distance_pct": 1.56,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
@@ -1137,21 +1173,21 @@
       "price": 25.2,
       "currency": "EUR",
       "var_pct": 1.29,
-      "atr_pct": 2.0096371706166334,
+      "atr_pct": 1.9924204354627333,
       "thresholds": {
-        "opportunity": -5.02,
-        "caution": -2.01,
-        "rally": 2.01,
-        "momentum": 5.02,
-        "atr_pct": 2.01,
+        "opportunity": -4.98,
+        "caution": -1.99,
+        "rally": 1.99,
+        "momentum": 4.98,
+        "atr_pct": 1.99,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.27,
       "volume_label": "\u2713 normale",
-      "rsi": 47.5,
-      "ma50_distance_pct": 2.71,
+      "rsi": 42.2,
+      "ma50_distance_pct": 1.66,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
@@ -1168,62 +1204,26 @@
       "action": "\u26aa HOLD"
     },
     {
-      "ticker": "TRN.MI",
-      "side": "WATCHLIST",
-      "price": 9.174,
-      "currency": "EUR",
-      "var_pct": 0.22,
-      "atr_pct": 1.8406072151349002,
-      "thresholds": {
-        "opportunity": -4.6,
-        "caution": -1.84,
-        "rally": 1.84,
-        "momentum": 4.6,
-        "atr_pct": 1.84,
-        "method": "adaptive"
-      },
-      "tag": "NEUTRAL",
-      "base_score": 0,
-      "volume_z": -0.94,
-      "volume_label": "\u2713 normale",
-      "rsi": 42.4,
-      "ma50_distance_pct": -5.67,
-      "mean_reversion_score": 1,
-      "mean_reversion_label": "\ud83d\udcc9 oversold mild",
-      "relative_strength": {
-        "delta": -0.41,
-        "label": "in linea"
-      },
-      "calendar": {
-        "event": null,
-        "in_days": null,
-        "date": null
-      },
-      "persistence_days": 1,
-      "composite_score": 0.1,
-      "action": "\u26aa HOLD"
-    },
-    {
       "ticker": "EDP.LS",
       "side": "WATCHLIST",
       "price": 4.839,
       "currency": "EUR",
       "var_pct": 0.94,
-      "atr_pct": 1.8480814030659278,
+      "atr_pct": 1.875858537404725,
       "thresholds": {
-        "opportunity": -4.62,
-        "caution": -1.85,
-        "rally": 1.85,
-        "momentum": 4.62,
-        "atr_pct": 1.85,
+        "opportunity": -4.69,
+        "caution": -1.88,
+        "rally": 1.88,
+        "momentum": 4.69,
+        "atr_pct": 1.88,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
       "volume_z": -0.08,
       "volume_label": "\u2713 normale",
-      "rsi": 59.0,
-      "ma50_distance_pct": 4.48,
+      "rsi": 58.8,
+      "ma50_distance_pct": 3.65,
       "mean_reversion_score": 0,
       "mean_reversion_label": "neutrale",
       "relative_strength": {
@@ -1240,31 +1240,31 @@
       "action": "\u26aa HOLD"
     },
     {
-      "ticker": "AMT",
+      "ticker": "BSX",
       "side": "HOLDING",
-      "price": 168.73,
+      "price": 43.92,
       "currency": "USD",
-      "var_pct": 0.88,
-      "atr_pct": 2.302139869812144,
+      "var_pct": -1.7,
+      "atr_pct": 3.2567334050115275,
       "thresholds": {
-        "opportunity": -5.76,
-        "caution": -2.3,
-        "rally": 2.3,
-        "momentum": 5.76,
-        "atr_pct": 2.3,
+        "opportunity": -8.14,
+        "caution": -3.26,
+        "rally": 3.26,
+        "momentum": 8.14,
+        "atr_pct": 3.26,
         "method": "adaptive"
       },
       "tag": "NEUTRAL",
       "base_score": 0,
-      "volume_z": -2.07,
+      "volume_z": -1.09,
       "volume_label": "\ud83d\udd07 basso (rumore)",
-      "rsi": 35.1,
-      "ma50_distance_pct": -2.5,
-      "mean_reversion_score": 1,
-      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 35.1 debole",
+      "rsi": 33.0,
+      "ma50_distance_pct": -6.31,
+      "mean_reversion_score": 2,
+      "mean_reversion_label": "\ud83d\udcc9 oversold mild | RSI 33.0 debole",
       "relative_strength": {
-        "delta": 0.49,
-        "label": "in linea"
+        "delta": -2.21,
+        "label": "\u26a0 sottoperforma -2.21%"
       },
       "calendar": {
         "event": null,
@@ -1272,7 +1272,7 @@
         "date": null
       },
       "persistence_days": 1,
-      "composite_score": 0.03,
+      "composite_score": 0.01,
       "action": "\u26aa HOLD"
     }
   ]
