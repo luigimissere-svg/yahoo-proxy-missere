@@ -50,6 +50,7 @@ from engine.custom_data import build_feed
 from engine.strategy import PatrimonioStrategy
 from engine.modules._fundamentals import set_data_root as set_fundamentals_root
 from engine.constraints import make_default_constraints
+from engine.trade_ledger import TradeLedger
 from engine.walkforward import (
     Fold,
     FoldResult,
@@ -252,7 +253,144 @@ def make_backtest_runner(
     return run_backtest
 
 
-# ─── Pretty print ────────────────────────────────────────────────────────────
+def make_ledger_runner(
+    bundles: Dict[str, Any],
+    tickers: List[str],
+    cash: float,
+    commission: float,
+    sector_map_cache: Dict[str, str],
+    beta_map_cache: Dict[str, float],
+    fixed_params: Dict[str, Any],
+    warmup_calendar_days: int = 365,
+):
+    """
+    Variante di make_backtest_runner che ritorna anche il ledger trade-level.
+
+    Identica a `make_backtest_runner` ma con un analyzer `TradeLedger` aggiuntivo
+    e una signature di ritorno che espone i singoli trade. Pensata per il
+    re-run OOS post-selezione, dove servono i ledger per analisi di
+    concentrazione (item consulente v7→v8).
+
+    Returns:
+        run_with_ledger(params, start, end) → (RunMetrics, list[dict trade])
+    """
+    import datetime as _dt
+
+    def run_with_ledger(params: Dict[str, Any], start: datetime, end: datetime):
+        cerebro = bt.Cerebro(stdstats=False)
+        cerebro.broker.set_cash(cash)
+        cerebro.broker.setcommission(commission=commission)
+
+        feed_from = start - _dt.timedelta(days=warmup_calendar_days)
+        from_str = feed_from.strftime('%Y-%m-%d')
+        to_str = end.strftime('%Y-%m-%d')
+
+        n_added = 0
+        for t in tickers:
+            bundle = bundles.get(t)
+            if bundle is None:
+                continue
+            try:
+                feed = build_feed(bundle, fromdate=from_str, todate=to_str, earnings_window=5)
+                cerebro.adddata(feed, name=t)
+                n_added += 1
+            except Exception:
+                continue
+        if n_added == 0:
+            return RunMetrics.empty(), []
+
+        max_sector_pct = params.get('max_sector_pct', None)
+        max_portfolio_beta = params.get('max_portfolio_beta', None)
+        portfolio_constraints = None
+        if (max_sector_pct is not None and max_sector_pct > 0) or \
+           (max_portfolio_beta is not None and max_portfolio_beta > 0):
+            from engine.constraints import PortfolioConstraints
+            portfolio_constraints = PortfolioConstraints(
+                sector_map=sector_map_cache,
+                beta_map=beta_map_cache,
+                max_sector_pct=max_sector_pct,
+                max_portfolio_beta=max_portfolio_beta,
+                violation_policy='block_new',
+            )
+
+        strat_kwargs = dict(fixed_params)
+        for key in ('threshold', 'min_concordant', 'target_risk_pct'):
+            if key in params:
+                strat_kwargs[key] = params[key]
+        strat_kwargs['portfolio_constraints'] = portfolio_constraints
+
+        cerebro.addstrategy(PatrimonioStrategy, **strat_kwargs)
+
+        cerebro.addanalyzer(
+            bt.analyzers.SharpeRatio,
+            _name='sharpe_bt',
+            riskfreerate=0.0,
+            annualize=True,
+            timeframe=bt.TimeFrame.Days,
+            convertrate=True,
+            factor=252,
+        )
+        cerebro.addanalyzer(
+            bt.analyzers.TimeReturn,
+            _name='tr',
+            timeframe=bt.TimeFrame.Days,
+        )
+        cerebro.addanalyzer(bt.analyzers.DrawDown, _name='dd')
+        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
+        # Trade-level ledger (la ragion d'essere di questa factory).
+        cerebro.addanalyzer(TradeLedger, _name='ledger')
+
+        try:
+            results = cerebro.run()
+            strat = results[0]
+        except Exception as e:
+            logger.warning(f"ledger re-run FAIL params={params}: {e}")
+            return RunMetrics.empty(), []
+
+        # Metriche (stessa logica di make_backtest_runner).
+        sharpe_bt_raw = strat.analyzers.sharpe_bt.get_analysis().get('sharperatio')
+        sharpe_bt = float(sharpe_bt_raw) if sharpe_bt_raw is not None else 0.0
+        tr_ana = strat.analyzers.tr.get_analysis()
+        rets = np.array([r for _, r in sorted(tr_ana.items())], dtype=float)
+        n_bars = int(rets.size)
+        n_nonzero = int(np.count_nonzero(rets))
+        std_rets = float(rets.std(ddof=1)) if n_bars >= 2 else 0.0
+        if n_bars < 20 or n_nonzero < 10 or std_rets < 1e-8:
+            sharpe_a = float('nan')
+            sharpe_flag = 'insufficient_window'
+        else:
+            sharpe_a = float(rets.mean() / std_rets * np.sqrt(252))
+            sharpe_flag = 'ok'
+        sharpe = sharpe_bt / float(np.sqrt(252)) if sharpe_flag == 'ok' else 0.0
+        dd = strat.analyzers.dd.get_analysis().get('max', {}).get('drawdown', 0.0) or 0.0
+        trades_ana = strat.analyzers.trades.get_analysis()
+        total_block = trades_ana.get('total', {}) or {}
+        n_trades = total_block.get('total', 0) or total_block.get('closed', 0) or 0
+        final_value = cerebro.broker.getvalue()
+        pnl_pct = (final_value / cash - 1.0) * 100.0
+
+        metrics = RunMetrics(
+            sharpe=float(sharpe),
+            sharpe_a=float(sharpe_a),
+            pnl_pct=float(pnl_pct),
+            max_dd=float(dd),
+            trades=int(n_trades),
+            final_value=float(final_value),
+            sharpe_bt=float(sharpe_bt),
+            sharpe_flag=sharpe_flag,
+            n_bars=n_bars,
+            n_nonzero_returns=n_nonzero,
+        )
+
+        # Ledger.
+        ledger_data = strat.analyzers.ledger.get_analysis()
+        trades = ledger_data.get('trades', [])
+        return metrics, trades
+
+    return run_with_ledger
+
+
+# ─── Pretty print ────────────────────────────────────────────────
 
 def print_results_table(results: List[FoldResult]) -> None:
     print("\n" + "═" * 110)
@@ -361,6 +499,13 @@ def parse_args():
     # Output
     p.add_argument('--output-csv', type=str, default='wf_results.csv')
     p.add_argument('--stability-json', type=str, default='wf_stability.json')
+    p.add_argument('--save-trades-csv', dest='save_trades_csv', type=str, default=None,
+                   help="Path CSV per dump trade-level ledger su tutti i fold OOS "
+                        "con best_params selezionati. Genera un re-run OOS dedicato "
+                        "per fold con TradeLedger attivo (overhead ~ N_fold * 1 backtest). "
+                        "Output: 1 riga per trade chiuso (+ snapshot trade aperti a fine "
+                        "finestra OOS) con colonna fold_id. Necessario per analisi di "
+                        "concentrazione e falsificazione ipotesi few-winners.")
     p.add_argument('--data-root', type=str, default=str(ROOT / 'data'))
     p.add_argument('--verbose', action='store_true')
     return p.parse_args()
@@ -512,6 +657,69 @@ def main():
     with json_path.open('w') as f:
         json.dump(_safe(stability), f, indent=2, default=str)
     print(f"Stability JSON saved: {json_path}")
+
+    # ── Trade ledger dump (item consulente v7→v8) ────────────────────────
+    # Re-run OOS per ogni fold con best_params selezionati e TradeLedger attivo.
+    # Costo: N_fold backtest aggiuntivi (~3 per WF standard) — trascurabile.
+    # Risultato: 1 CSV con tutti i trade chiusi OOS + snapshot trade aperti a
+    # fine OOS, con colonna fold_id, utile per analisi di concentrazione e
+    # falsificazione dell'ipotesi few-winners.
+    if args.save_trades_csv:
+        print("\n" + "═" * 110)
+        print("TRADE LEDGER — re-run OOS per-fold con best_params")
+        print("═" * 110)
+
+        ledger_run = make_ledger_runner(
+            bundles=bundles,
+            tickers=list(bundles.keys()),
+            cash=args.cash,
+            commission=args.commission,
+            sector_map_cache=sector_map_cache,
+            beta_map_cache=beta_map_cache,
+            fixed_params=fixed_params,
+        )
+
+        all_trades: List[Dict[str, Any]] = []
+        for r in results:
+            oos_start_dt = datetime.strptime(r.oos_start, '%Y-%m-%d') \
+                if isinstance(r.oos_start, str) else r.oos_start
+            oos_end_dt = datetime.strptime(r.oos_end, '%Y-%m-%d') \
+                if isinstance(r.oos_end, str) else r.oos_end
+            print(f"  Fold {r.fold_id}: re-run OOS {r.oos_start} → {r.oos_end} "
+                  f"con params={r.best_params}")
+            try:
+                _metrics, trades = ledger_run(r.best_params, oos_start_dt, oos_end_dt)
+            except Exception as exc:
+                print(f"    ⚠ ledger re-run errore: {exc}")
+                continue
+            for tr in trades:
+                row = dict(tr)
+                row['fold_id'] = r.fold_id
+                row['oos_start'] = r.oos_start
+                row['oos_end'] = r.oos_end
+                all_trades.append(row)
+            n_closed = sum(1 for t in trades if t.get('status') == 'closed')
+            n_open = sum(1 for t in trades if t.get('status') == 'open_at_end')
+            print(f"    → closed={n_closed}, open_at_end={n_open}")
+
+        # Dump CSV.
+        trades_csv_path = Path(args.save_trades_csv)
+        if not trades_csv_path.is_absolute():
+            trades_csv_path = ROOT / trades_csv_path
+        fieldnames = [
+            'fold_id', 'oos_start', 'oos_end',
+            'ticker', 'dt_open', 'dt_close', 'bars_held',
+            'size', 'entry_price', 'notional_open',
+            'pnl_gross', 'pnl_net', 'pnl_pct',
+            'commission', 'status',
+        ]
+        with trades_csv_path.open('w', newline='', encoding='utf-8') as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for row in all_trades:
+                w.writerow({k: row.get(k, '') for k in fieldnames})
+        print(f"\nTrade ledger CSV saved: {trades_csv_path}  "
+              f"(rows={len(all_trades)})")
 
 
 if __name__ == '__main__':
